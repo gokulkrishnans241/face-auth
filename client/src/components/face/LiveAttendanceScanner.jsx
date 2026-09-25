@@ -10,8 +10,11 @@ import {
   AlertTriangle,
   UserCheck,
   Check,
+  X,
   XCircle,
   ShieldCheck,
+  Edit3,
+  RefreshCw,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -25,6 +28,7 @@ export const LiveAttendanceScanner = ({
   const [markedStudents, setMarkedStudents] = useState([]);
   const [lastMatch, setLastMatch] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [togglingStudentId, setTogglingStudentId] = useState(null);
   const [feedback, setFeedback] = useState({
     success: false,
     title: 'Ready for Face Recognition',
@@ -106,16 +110,51 @@ export const LiveAttendanceScanner = ({
     }
   };
 
+  // Manual faculty toggle (Present <-> Absent)
+  const handleManualToggle = async (studentId, targetStatus) => {
+    setTogglingStudentId(studentId);
+    try {
+      const res = await apiClient.post('/attendance/toggle-status', {
+        sessionId: session._id,
+        studentId,
+        targetStatus,
+        reason: `Faculty manually marked ${targetStatus} during live session`,
+      });
+
+      if (res.data.success) {
+        if (targetStatus === 'Present') {
+          playSuccessChime();
+        }
+        setFeedback({
+          success: true,
+          title: `${res.data.student.name}: ${targetStatus.toUpperCase()}`,
+          subtitle: `Faculty manual override successfully saved`,
+        });
+
+        if (onAttendanceUpdated) {
+          onAttendanceUpdated();
+        }
+      }
+    } catch (err) {
+      console.error('Manual toggle error:', err);
+      setFeedback({
+        success: false,
+        title: 'Update Error',
+        subtitle: err.response?.data?.message || 'Failed to update attendance.',
+      });
+    } finally {
+      setTogglingStudentId(null);
+    }
+  };
+
   // Automated stream detection simulation
   const handleFaceDetectedInStream = ({ embedding }) => {
     // If not processing and there are unmarked students, simulate scanning candidate
     if (!isProcessing && studentsList.length > 0) {
       const unmarked = studentsList.filter((s) => s.status !== 'Present');
       if (unmarked.length > 0) {
-        // Pick top candidate based on stream
         const candidate = unmarked[0]?.student;
         if (candidate && !cooldownRef.current.has(candidate._id.toString())) {
-          // Verify with high confidence
           handleMarkStudent(candidate._id, 97.8);
         }
       }
@@ -131,6 +170,7 @@ export const LiveAttendanceScanner = ({
   });
 
   const presentCount = (studentsList || []).filter((s) => s.status === 'Present').length;
+  const absentCount = (studentsList || []).filter((s) => s.status === 'Absent').length;
   const totalStudents = studentsList?.length || 0;
   const attendanceRate = totalStudents > 0 ? (presentCount / totalStudents) * 100 : 0;
 
@@ -176,7 +216,7 @@ export const LiveAttendanceScanner = ({
         <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-xs text-slate-400">
             <ShieldCheck className="w-4 h-4 text-teal-400" />
-            <span>Anti-Spoofing & Liveness Active</span>
+            <span>Anti-Spoofing & Editable Attendance Active</span>
           </div>
 
           {onSessionClosed && (
@@ -190,17 +230,19 @@ export const LiveAttendanceScanner = ({
         </div>
       </div>
 
-      {/* Right: Real-time Student Roster & Live Status */}
+      {/* Right: Real-time Student Roster & Live Status with Editable Controls */}
       <div className="lg:col-span-5 space-y-4">
         <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-xs font-bold text-white uppercase tracking-wider">
               <Users className="w-4 h-4 text-teal-400" />
-              <span>Assigned Students ({totalStudents})</span>
+              <span>Student Roster ({totalStudents})</span>
             </div>
-            <span className="text-[11px] text-teal-400 font-mono">
-              {presentCount} Present • {totalStudents - presentCount} Remaining
-            </span>
+            <div className="text-[11px] font-mono flex items-center gap-2">
+              <span className="text-emerald-400">{presentCount} Present</span>
+              <span className="text-slate-600">•</span>
+              <span className="text-rose-400">{absentCount} Absent</span>
+            </div>
           </div>
 
           <input
@@ -211,7 +253,7 @@ export const LiveAttendanceScanner = ({
             className="w-full px-3 py-2 text-xs rounded-xl glass-input"
           />
 
-          <div className="space-y-2 max-h-[440px] overflow-y-auto pr-1">
+          <div className="space-y-2 max-h-[460px] overflow-y-auto pr-1">
             {filteredStudents.length === 0 ? (
               <div className="p-6 text-center text-xs text-slate-500">
                 No students match your filter.
@@ -220,21 +262,27 @@ export const LiveAttendanceScanner = ({
               filteredStudents.map((item) => {
                 const s = item.student;
                 const isPresent = item.status === 'Present';
+                const isAbsent = item.status === 'Absent';
+                const isUpdating = togglingStudentId === s._id;
 
                 return (
                   <div
                     key={s._id}
-                    className={`flex items-center justify-between p-3 rounded-xl border transition-all ${
+                    className={`flex items-center justify-between p-3 rounded-2xl border transition-all ${
                       isPresent
-                        ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-100'
+                        ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-100'
+                        : isAbsent
+                        ? 'bg-rose-950/30 border-rose-500/30 text-rose-100'
                         : 'bg-slate-950/60 border-slate-800/80 hover:border-slate-700 text-slate-300'
                     }`}
                   >
                     <div className="flex items-center gap-3">
                       <div
-                        className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs ${
+                        className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs ${
                           isPresent
                             ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                            : isAbsent
+                            ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
                             : 'bg-slate-800 text-slate-400'
                         }`}
                       >
@@ -242,24 +290,60 @@ export const LiveAttendanceScanner = ({
                       </div>
                       <div>
                         <div className="text-xs font-semibold text-white">{s.name}</div>
-                        <div className="text-[10px] text-slate-400 font-mono">{s.userId}</div>
+                        <div className="text-[10px] text-slate-400 font-mono flex items-center gap-1.5">
+                          <span>{s.userId}</span>
+                          {isPresent && item.checkInTime && (
+                            <span className="text-emerald-400 font-bold">
+                              • {new Date(item.checkInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
-                      {isPresent ? (
-                        <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold">
-                          <Check className="w-3 h-3" /> PRESENT
+                    {/* Faculty Action Buttons (Editable Present / Absent Controls) */}
+                    <div className="flex items-center gap-1.5">
+                      {isUpdating ? (
+                        <div className="p-1.5 rounded-lg bg-slate-800 text-slate-300">
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        </div>
+                      ) : isPresent ? (
+                        <div className="flex items-center gap-1">
+                          <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold">
+                            <Check className="w-3 h-3 stroke-[3]" /> Present
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleManualToggle(s._id, 'Absent')}
+                            className="p-1 rounded-lg bg-slate-900 hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 border border-slate-800 hover:border-rose-500/30 text-[10px] transition-colors"
+                            title="Mark as Absent"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                       ) : (
-                        <button
-                          onClick={() => handleMarkStudent(s._id, 99.1)}
-                          disabled={isProcessing}
-                          className="px-2.5 py-1 rounded-lg bg-teal-500/20 hover:bg-teal-500/30 text-teal-300 border border-teal-500/30 text-[11px] font-medium transition-colors"
-                          title="Verify student face"
-                        >
-                          Verify Face
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => handleManualToggle(s._id, 'Present')}
+                            className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold transition-colors flex items-center gap-1"
+                            title="Mark Present"
+                          >
+                            <Check className="w-3 h-3" /> Mark Present
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleManualToggle(s._id, 'Absent')}
+                            className={`p-1 rounded-lg text-[10px] border transition-colors ${
+                              isAbsent
+                                ? 'bg-rose-500/20 text-rose-300 border-rose-500/30 font-bold'
+                                : 'bg-slate-900 hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 border-slate-800'
+                            }`}
+                            title="Mark Absent"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       )}
                     </div>
                   </div>

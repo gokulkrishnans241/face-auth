@@ -253,12 +253,75 @@ export const exportAttendanceExcel = async (req, res, next) => {
       percentage: s.totalEligibleSessions > 0 ? (s.presentCount / s.totalEligibleSessions) * 100 : 0,
     }));
 
+    // 5. Compile Period Matrix (Period 1 to 7 per student per date)
+    const periodMatrixMap = new Map();
+    classrooms.forEach((cr) => {
+      (cr.students || []).forEach((st) => {
+        const key = `${st._id}_${queryStartDate}`;
+        periodMatrixMap.set(key, {
+          studentUserId: st.userId,
+          studentName: st.name,
+          classroomName: cr.name,
+          date: queryStartDate,
+          p1: '—',
+          p2: '—',
+          p3: '—',
+          p4: '—',
+          p5: '—',
+          p6: '—',
+          p7: '—',
+          presentCount: 0,
+          absentCount: 0,
+        });
+      });
+    });
+
+    records.forEach((r) => {
+      if (!r.studentId) return;
+      const key = `${r.studentId._id}_${r.date}`;
+      if (!periodMatrixMap.has(key)) {
+        periodMatrixMap.set(key, {
+          studentUserId: r.studentId.userId,
+          studentName: r.studentId.name,
+          classroomName: r.classroomId?.name || 'Classroom',
+          date: r.date,
+          p1: '—',
+          p2: '—',
+          p3: '—',
+          p4: '—',
+          p5: '—',
+          p6: '—',
+          p7: '—',
+          presentCount: 0,
+          absentCount: 0,
+        });
+      }
+      const item = periodMatrixMap.get(key);
+      const pKey = `p${r.sessionNumber}`;
+      if (item && item[pKey] !== undefined) {
+        item[pKey] = r.status === 'Present' ? 'P' : 'A';
+      }
+      if (item) {
+        if (r.status === 'Present') item.presentCount += 1;
+        if (r.status === 'Absent') item.absentCount += 1;
+      }
+    });
+
+    const periodMatrix = Array.from(periodMatrixMap.values()).map((p) => {
+      const total = p.presentCount + p.absentCount;
+      return {
+        ...p,
+        percentage: total > 0 ? (p.presentCount / total) * 100 : 0,
+      };
+    });
+
     // Generate Workbook
     const workbook = await generateAttendanceWorkbook({
       dailySummary,
       sessionSummary,
       detailedRecords,
       studentSummary,
+      periodMatrix,
     });
 
     const filename = `Attendance_Report_${queryStartDate}_to_${queryEndDate}.xlsx`;

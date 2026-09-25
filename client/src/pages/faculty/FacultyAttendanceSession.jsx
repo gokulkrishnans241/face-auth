@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import apiClient from '../../api/client';
 import LiveAttendanceScanner from '../../components/face/LiveAttendanceScanner';
+import ClassroomPeriodMatrix from '../../components/attendance/ClassroomPeriodMatrix';
+import { downloadExcelReport } from '../../utils/exportUtils';
 import {
   ScanFace,
   ArrowLeft,
@@ -14,6 +16,8 @@ import {
   Download,
   AlertTriangle,
   Sparkles,
+  Layers,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -27,6 +31,10 @@ export const FacultyAttendanceSession = () => {
   const [studentsList, setStudentsList] = useState([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
+  const [downloading, setDownloading] = useState(false);
+
+  // Tab state: 'launcher' | 'matrix'
+  const [currentView, setCurrentView] = useState('launcher'); // 'launcher' | 'matrix'
 
   // Quick Session Creator State (Room Number -> Subject -> Timings)
   const [selectedClassroomId, setSelectedClassroomId] = useState('');
@@ -108,19 +116,15 @@ export const FacultyAttendanceSession = () => {
     try {
       const today = format(new Date(), 'yyyy-MM-dd');
       const targetClassroom = classrooms.find((c) => c._id === selectedClassroomId);
-      const sessionId = `SESS-${today.replace(/-/g, '')}-${targetClassroom?.classroomId || 'CR'}-P${selectedPeriod}`;
 
-      // Check if session exists or create/start it
       let session;
       const existingRes = await apiClient.get(`/sessions?date=${today}&classroomId=${selectedClassroomId}`);
       const match = existingRes.data.sessions?.find((s) => s.sessionNumber === selectedPeriod);
 
       if (match) {
-        // Start existing session
         const startRes = await apiClient.post(`/sessions/${match._id}/start`);
         session = startRes.data.session;
       } else {
-        // Generate daily periods then start
         await apiClient.post('/sessions/generate-daily', {
           date: today,
           classroomId: selectedClassroomId,
@@ -161,20 +165,29 @@ export const FacultyAttendanceSession = () => {
     }
   };
 
-  const handleDownloadExcel = () => {
+  const handleDownloadExcel = async () => {
     if (!activeSession) return;
-    const token = localStorage.getItem('smart_attendance_token');
-    const apiUrl = import.meta.env.VITE_API_URL || '/api';
-    window.open(
-      `${apiUrl}/reports/excel?startDate=${activeSession.date}&endDate=${activeSession.date}&classroomId=${activeSession.classroomId?._id || activeSession.classroomId}&sessionId=${activeSession._id}&token=${token}`,
-      '_blank'
-    );
+    setDownloading(true);
+    try {
+      await downloadExcelReport({
+        startDate: activeSession.date,
+        endDate: activeSession.date,
+        classroomId: activeSession.classroomId?._id || activeSession.classroomId,
+        sessionId: activeSession._id,
+        customFilename: `Session_${activeSession.sessionNumber}_Attendance_${activeSession.date}.xlsx`,
+      });
+      setMessage('Excel workbook downloaded successfully.');
+    } catch (err) {
+      setMessage(err.message || 'Error downloading Excel report.');
+    } finally {
+      setDownloading(false);
+    }
   };
 
   return (
     <div className="space-y-6">
-      {/* Top Navigation */}
-      <div className="p-4 sm:p-5 rounded-2xl glass-panel flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      {/* Top Navigation Bar */}
+      <div className="p-4 sm:p-5 rounded-3xl glass-panel flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <button
             onClick={() => {
@@ -197,31 +210,63 @@ export const FacultyAttendanceSession = () => {
               )}
             </div>
             <p className="text-xs text-slate-400">
-              Students pass by this faculty device to verify facial biometric attendance
+              Biometric face recognition station & full period-by-period attendance management
             </p>
           </div>
         </div>
 
-        {activeSession && (
-          <button
-            onClick={handleDownloadExcel}
-            className="px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-teal-300 text-xs font-semibold flex items-center gap-1.5 transition-colors"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Download Session Excel</span>
-          </button>
-        )}
+        {/* View Switcher / Excel Downloader */}
+        <div className="flex items-center gap-2">
+          {!activeSession && (
+            <div className="flex items-center p-1 rounded-xl bg-slate-900 border border-slate-800 text-xs">
+              <button
+                type="button"
+                onClick={() => setCurrentView('launcher')}
+                className={`px-3 py-1.5 rounded-lg font-bold transition-all ${
+                  currentView === 'launcher'
+                    ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Scan Launcher
+              </button>
+              <button
+                type="button"
+                onClick={() => setCurrentView('matrix')}
+                className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 ${
+                  currentView === 'matrix'
+                    ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>Period Matrix & Editor</span>
+              </button>
+            </div>
+          )}
+
+          {activeSession && (
+            <button
+              onClick={handleDownloadExcel}
+              disabled={downloading}
+              className="px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-teal-300 text-xs font-semibold flex items-center gap-1.5 transition-colors"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>{downloading ? 'Downloading...' : 'Download Session Excel'}</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {message && (
-        <div className="p-3.5 rounded-xl bg-teal-950/80 border border-teal-500/30 text-xs text-teal-200 flex items-center justify-between">
+        <div className="p-3.5 rounded-2xl bg-teal-950/80 border border-teal-500/30 text-xs text-teal-200 flex items-center justify-between">
           <span>{message}</span>
           <button onClick={() => setMessage('')} className="text-teal-400 font-bold">Dismiss</button>
         </div>
       )}
 
-      {/* Screen 1: Session Launcher (Select Room -> Subject -> Timings) */}
-      {!activeSession && (
+      {/* View 1: Session Launcher (Room -> Subject -> Timings) */}
+      {!activeSession && currentView === 'launcher' && (
         <div className="max-w-2xl mx-auto p-6 sm:p-8 rounded-3xl glass-panel space-y-6">
           <div className="border-b border-slate-800 pb-4">
             <h2 className="text-base font-bold text-white uppercase tracking-wider flex items-center gap-2">
@@ -338,7 +383,16 @@ export const FacultyAttendanceSession = () => {
         </div>
       )}
 
-      {/* Screen 2: Live Camera Viewfinder & Attendance Scanner */}
+      {/* View 2: Period-by-Period Classroom Matrix & Manual Attendance Editor */}
+      {!activeSession && currentView === 'matrix' && (
+        <ClassroomPeriodMatrix
+          initialClassroomId={selectedClassroomId}
+          allowClassroomSwitch={true}
+          userRole="faculty"
+        />
+      )}
+
+      {/* View 3: Live Camera Viewfinder & Attendance Scanner */}
       {activeSession && (
         <LiveAttendanceScanner
           session={activeSession}

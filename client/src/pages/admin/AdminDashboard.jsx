@@ -18,11 +18,14 @@ import {
 import { format } from 'date-fns';
 import { Link } from 'react-router-dom';
 
+import { downloadExcelReport } from '../../utils/exportUtils';
+
 export const AdminDashboard = () => {
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const [message, setMessage] = useState('');
 
   const fetchDashboardData = async () => {
@@ -59,10 +62,21 @@ export const AdminDashboard = () => {
     }
   };
 
-  const handleDownloadExcel = () => {
-    const token = localStorage.getItem('smart_attendance_token');
-    const apiUrl = import.meta.env.VITE_API_URL || '/api';
-    window.open(`${apiUrl}/reports/excel?startDate=${date}&endDate=${date}&token=${token}`, '_blank');
+  const handleDownloadExcel = async () => {
+    setDownloading(true);
+    setMessage('');
+    try {
+      await downloadExcelReport({
+        startDate: date,
+        endDate: date,
+        customFilename: `Institution_Attendance_${date}.xlsx`,
+      });
+      setMessage('Attendance Excel workbook downloaded successfully.');
+    } catch (err) {
+      setMessage(err.message || 'Error downloading Excel report.');
+    } finally {
+      setDownloading(false);
+    }
   };
 
   return (
@@ -114,10 +128,11 @@ export const AdminDashboard = () => {
 
           <button
             onClick={handleDownloadExcel}
-            className="px-4 py-2 rounded-xl bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-600 hover:to-emerald-700 text-slate-950 font-bold text-xs shadow-lg shadow-teal-500/20 flex items-center gap-1.5 transition-all"
+            disabled={downloading}
+            className="px-4 py-2 rounded-xl bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-600 hover:to-emerald-700 text-slate-950 font-bold text-xs shadow-lg shadow-teal-500/20 flex items-center gap-1.5 transition-all disabled:opacity-50"
           >
             <Download className="w-3.5 h-3.5" />
-            <span>Export Excel Report</span>
+            <span>{downloading ? 'Exporting...' : 'Export Excel Report'}</span>
           </button>
         </div>
       </div>

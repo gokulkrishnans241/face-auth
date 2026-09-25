@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import apiClient from '../../api/client';
+import ClassroomPeriodMatrix from '../../components/attendance/ClassroomPeriodMatrix';
 import Modal from '../../components/common/Modal';
 import {
   FileEdit,
@@ -13,10 +14,14 @@ import {
   History,
   Save,
   Sparkles,
+  Layers,
+  ListFilter,
 } from 'lucide-react';
 import { format } from 'date-fns';
 
 export const AttendanceEditor = () => {
+  const [editorMode, setEditorMode] = useState('matrix'); // 'matrix' | 'session_single'
+
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [classrooms, setClassrooms] = useState([]);
   const [selectedClassroomId, setSelectedClassroomId] = useState('');
@@ -89,8 +94,10 @@ export const AttendanceEditor = () => {
   };
 
   useEffect(() => {
-    fetchSessionRecords();
-  }, [selectedSessionId]);
+    if (editorMode === 'session_single') {
+      fetchSessionRecords();
+    }
+  }, [selectedSessionId, editorMode]);
 
   const handleOpenCorrection = (item) => {
     setActiveItem(item);
@@ -102,7 +109,7 @@ export const AttendanceEditor = () => {
   const handleSaveCorrection = async (e) => {
     e.preventDefault();
     if (!activeItem || !activeItem.recordId) {
-      setMessage('Error: Attendance record must exist before correcting. Please verify or start session.');
+      setMessage('Error: Attendance record must exist before correcting.');
       return;
     }
     if (!correctionReason.trim()) {
@@ -140,179 +147,218 @@ export const AttendanceEditor = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header with Selector Controls */}
-      <div className="p-5 rounded-2xl glass-panel space-y-4">
+      {/* Header with Mode Switcher */}
+      <div className="p-5 sm:p-6 rounded-3xl glass-panel space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-xl sm:text-2xl font-extrabold text-white font-outfit">
-                Attendance Master Editor
+                Attendance Master Management & Matrix
               </h1>
               <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                ADMIN OVERRIDE
+                ADMIN & FACULTY OVERRIDE
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-0.5">
-              Authorized manual modification of Present / Absent records with tamper-proof audit logging
+              Live full Period 1 to 7 interactive matrix with 1-click status toggles and permanent audit trail
             </p>
           </div>
-        </div>
 
-        {/* 3-Column Filter Controls (Classroom, Date, Session) */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
-          <div>
-            <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">
-              Select Classroom (1 of 7)
-            </label>
-            <select
-              value={selectedClassroomId}
-              onChange={(e) => setSelectedClassroomId(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl glass-input text-xs"
+          <div className="flex items-center p-1 rounded-xl bg-slate-900 border border-slate-800 text-xs self-start sm:self-auto">
+            <button
+              onClick={() => setEditorMode('matrix')}
+              className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 ${
+                editorMode === 'matrix'
+                  ? 'bg-teal-500/20 text-teal-300 border border-teal-500/40 shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
             >
-              {classrooms.map((cr) => (
-                <option key={cr._id} value={cr._id}>
-                  {cr.classroomId}: {cr.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">
-              Attendance Date
-            </label>
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl glass-input text-xs"
-            />
-          </div>
-
-          <div>
-            <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">
-              Select Session (Period 1-7)
-            </label>
-            <select
-              value={selectedSessionId}
-              onChange={(e) => setSelectedSessionId(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl glass-input text-xs"
-              disabled={sessions.length === 0}
+              <Layers className="w-3.5 h-3.5" />
+              <span>Full Period Matrix (P1-P7)</span>
+            </button>
+            <button
+              onClick={() => setEditorMode('session_single')}
+              className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 ${
+                editorMode === 'session_single'
+                  ? 'bg-teal-500/20 text-teal-300 border border-teal-500/40 shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
             >
-              {sessions.length === 0 ? (
-                <option value="">No sessions scheduled</option>
-              ) : (
-                sessions.map((s) => (
-                  <option key={s._id} value={s._id}>
-                    Period {s.sessionNumber}: {s.sessionName} ({s.startTime}-{s.endTime})
-                  </option>
-                ))
-              )}
-            </select>
+              <ListFilter className="w-3.5 h-3.5" />
+              <span>Single Session Inspector</span>
+            </button>
           </div>
         </div>
       </div>
 
       {message && (
-        <div className="p-3.5 rounded-xl bg-teal-950/80 border border-teal-500/30 text-xs text-teal-200 flex items-center justify-between">
+        <div className="p-3.5 rounded-2xl bg-teal-950/80 border border-teal-500/30 text-xs text-teal-200 flex items-center justify-between">
           <span>{message}</span>
           <button onClick={() => setMessage('')} className="text-teal-400 font-bold">Dismiss</button>
         </div>
       )}
 
-      {/* Student Records Table */}
-      <div className="p-5 rounded-3xl glass-panel space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-2 text-xs font-bold text-white uppercase tracking-wider">
-            <FileEdit className="w-4 h-4 text-teal-400" />
-            <span>Eligible Student Roster ({filteredStudents.length})</span>
+      {/* Mode 1: Full Period-by-Period Classroom Matrix */}
+      {editorMode === 'matrix' && (
+        <ClassroomPeriodMatrix
+          initialClassroomId={selectedClassroomId}
+          allowClassroomSwitch={true}
+          userRole="admin"
+        />
+      )}
+
+      {/* Mode 2: Single Session Detailed Inspector */}
+      {editorMode === 'session_single' && (
+        <div className="space-y-6">
+          <div className="p-5 sm:p-6 rounded-3xl glass-panel space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">
+                  Select Classroom (1 of 7)
+                </label>
+                <select
+                  value={selectedClassroomId}
+                  onChange={(e) => setSelectedClassroomId(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl glass-input text-xs font-medium"
+                >
+                  {classrooms.map((cr) => (
+                    <option key={cr._id} value={cr._id}>
+                      {cr.classroomId}: {cr.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">
+                  Attendance Date
+                </label>
+                <input
+                  type="date"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl glass-input text-xs font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">
+                  Select Session (Period 1-7)
+                </label>
+                <select
+                  value={selectedSessionId}
+                  onChange={(e) => setSelectedSessionId(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl glass-input text-xs font-medium"
+                  disabled={sessions.length === 0}
+                >
+                  {sessions.length === 0 ? (
+                    <option value="">No sessions scheduled</option>
+                  ) : (
+                    sessions.map((s) => (
+                      <option key={s._id} value={s._id}>
+                        Period {s.sessionNumber}: {s.sessionName} ({s.startTime}-{s.endTime})
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+            </div>
           </div>
 
-          <div className="relative">
-            <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5" />
-            <input
-              type="text"
-              placeholder="Search by student name or ID..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9 pr-3 py-1.5 rounded-xl glass-input text-xs w-64"
-            />
+          <div className="p-5 sm:p-6 rounded-3xl glass-panel space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-xs font-bold text-white uppercase tracking-wider">
+                <FileEdit className="w-4 h-4 text-teal-400" />
+                <span>Eligible Student Roster ({filteredStudents.length})</span>
+              </div>
+
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  placeholder="Search by student name or ID..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-9 pr-3 py-1.5 rounded-xl glass-input text-xs w-64"
+                />
+              </div>
+            </div>
+
+            {sessions.length === 0 ? (
+              <div className="p-8 text-center text-xs text-slate-500">
+                No scheduled session found for this classroom on {date}.
+              </div>
+            ) : loading ? (
+              <div className="p-8 text-center text-xs text-slate-400">Loading attendance records...</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-800 text-slate-400 font-semibold uppercase text-[10px]">
+                      <th className="py-3 px-3">Student ID</th>
+                      <th className="py-3 px-3">Student Name</th>
+                      <th className="py-3 px-3">Status</th>
+                      <th className="py-3 px-3">Verification Method</th>
+                      <th className="py-3 px-3">Check-in Timestamp</th>
+                      <th className="py-3 px-3">Correction History</th>
+                      <th className="py-3 px-3 text-right">Modify Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60 font-medium">
+                    {filteredStudents.map((item) => {
+                      const s = item.student;
+                      const isPresent = item.status === 'Present';
+                      const isAbsent = item.status === 'Absent';
+
+                      return (
+                        <tr key={s._id} className="hover:bg-slate-900/50 transition-colors">
+                          <td className="py-3 px-3 font-mono font-bold text-teal-300">{s.userId}</td>
+                          <td className="py-3 px-3 font-semibold text-white">{s.name}</td>
+                          <td className="py-3 px-3">
+                            <span
+                              className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                                isPresent
+                                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                  : isAbsent
+                                  ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                                  : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                              }`}
+                            >
+                              {item.status.toUpperCase()}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-slate-400">{item.verificationMethod}</td>
+                          <td className="py-3 px-3 font-mono text-slate-400">
+                            {item.checkInTime ? new Date(item.checkInTime).toLocaleTimeString() : '—'}
+                          </td>
+                          <td className="py-3 px-3 text-slate-400">
+                            {item.isCorrected ? (
+                              <span className="text-amber-300 text-[11px] font-mono">
+                                Reason: {item.correctionReason}
+                              </span>
+                            ) : (
+                              <span className="text-slate-500 text-[11px]">Original Record</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-3 text-right">
+                            <button
+                              onClick={() => handleOpenCorrection(item)}
+                              disabled={!item.recordId}
+                              className="px-3 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                            >
+                              Edit Status
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
-
-        {sessions.length === 0 ? (
-          <div className="p-8 text-center text-xs text-slate-500">
-            No scheduled session found for this classroom on {date}.
-          </div>
-        ) : loading ? (
-          <div className="p-8 text-center text-xs text-slate-400">Loading attendance records...</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead>
-                <tr className="border-b border-slate-800 text-slate-400 font-semibold uppercase text-[10px]">
-                  <th className="py-3 px-3">Student ID</th>
-                  <th className="py-3 px-3">Student Name</th>
-                  <th className="py-3 px-3">Status</th>
-                  <th className="py-3 px-3">Verification Method</th>
-                  <th className="py-3 px-3">Check-in Timestamp</th>
-                  <th className="py-3 px-3">Correction History</th>
-                  <th className="py-3 px-3 text-right">Modify Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60 font-medium">
-                {filteredStudents.map((item) => {
-                  const s = item.student;
-                  const isPresent = item.status === 'Present';
-                  const isAbsent = item.status === 'Absent';
-
-                  return (
-                    <tr key={s._id} className="hover:bg-slate-900/50 transition-colors">
-                      <td className="py-3 px-3 font-mono font-bold text-teal-300">{s.userId}</td>
-                      <td className="py-3 px-3 font-semibold text-white">{s.name}</td>
-                      <td className="py-3 px-3">
-                        <span
-                          className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                            isPresent
-                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                              : isAbsent
-                              ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                              : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                          }`}
-                        >
-                          {item.status.toUpperCase()}
-                        </span>
-                      </td>
-                      <td className="py-3 px-3 text-slate-400">{item.verificationMethod}</td>
-                      <td className="py-3 px-3 font-mono text-slate-400">
-                        {item.checkInTime ? new Date(item.checkInTime).toLocaleTimeString() : '—'}
-                      </td>
-                      <td className="py-3 px-3 text-slate-400">
-                        {item.isCorrected ? (
-                          <span className="text-amber-300 text-[11px] font-mono">
-                            Reason: {item.correctionReason}
-                          </span>
-                        ) : (
-                          <span className="text-slate-500 text-[11px]">Original Record</span>
-                        )}
-                      </td>
-                      <td className="py-3 px-3 text-right">
-                        <button
-                          onClick={() => handleOpenCorrection(item)}
-                          disabled={!item.recordId}
-                          className="px-3 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                        >
-                          Edit Status
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      )}
 
       {/* Manual Correction Modal */}
       <Modal
@@ -328,7 +374,7 @@ export const AttendanceEditor = () => {
               <span>AUDIT LOGGING ACTIVE</span>
             </div>
             <p className="text-[11px] opacity-90 leading-relaxed">
-              Every status change is permanently timestamped with your Administrator ID and reason.
+              Every status change is permanently timestamped with your Administrator/Faculty ID and reason.
             </p>
           </div>
 
