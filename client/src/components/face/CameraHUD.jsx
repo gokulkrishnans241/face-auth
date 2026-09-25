@@ -41,7 +41,6 @@ export const CameraHUD = ({
   const [stream, setStream] = useState(null);
   const [cameraStatus, setCameraStatus] = useState('initializing'); // 'initializing' | 'active' | 'denied' | 'error'
   const [errorMessage, setErrorMessage] = useState('');
-  const [livenessState, setLivenessState] = useState('Align Face');
 
   // Start Camera
   const startCamera = useCallback(async () => {
@@ -62,9 +61,6 @@ export const CameraHUD = ({
         audio: false,
       });
 
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream;
-      }
       setStream(mediaStream);
       setCameraStatus('active');
     } catch (err) {
@@ -89,6 +85,21 @@ export const CameraHUD = ({
     }
   }, [stream]);
 
+  // Hook to always attach the mediaStream to the video element whenever stream or ref changes
+  useEffect(() => {
+    if (videoRef.current && stream) {
+      videoRef.current.srcObject = stream;
+      videoRef.current
+        .play()
+        .then(() => {
+          setCameraStatus('active');
+        })
+        .catch((e) => {
+          console.warn('Video auto-play interrupted:', e);
+        });
+    }
+  }, [stream]);
+
   useEffect(() => {
     if (active) {
       startCamera();
@@ -102,17 +113,15 @@ export const CameraHUD = ({
 
   // Frame processing loop for landmark drawing & descriptor sampling
   useEffect(() => {
-    let animationFrameId;
     let intervalId;
 
     if (cameraStatus === 'active' && scanning) {
-      // Simulate real-time tracking points and feature extraction
       intervalId = setInterval(() => {
         if (!videoRef.current || !canvasRef.current) return;
         const video = videoRef.current;
         const canvas = canvasRef.current;
 
-        if (video.readyState === video.HAVE_ENOUGH_DATA) {
+        if (video.readyState >= 2) {
           canvas.width = video.videoWidth || 640;
           canvas.height = video.videoHeight || 480;
           const ctx = canvas.getContext('2d');
@@ -180,7 +189,6 @@ export const CameraHUD = ({
 
           // Extract sample vector and notify callback
           if (onFaceDetected) {
-            // Generate realistic 128-d biometric descriptor from canvas snapshot
             const sampleEmbedding = [];
             for (let i = 0; i < 128; i++) {
               sampleEmbedding.push(parseFloat((Math.sin(i * 0.2 + Date.now() * 0.0001) * 0.5).toFixed(4)));
@@ -197,35 +205,41 @@ export const CameraHUD = ({
 
     return () => {
       clearInterval(intervalId);
-      cancelAnimationFrame(animationFrameId);
     };
   }, [cameraStatus, scanning, matchFeedback, onFaceDetected]);
 
   return (
     <div className="relative w-full max-w-xl mx-auto rounded-3xl overflow-hidden bg-slate-950 border border-slate-800 shadow-2xl">
-      {/* Video Feed */}
-      <div className="relative aspect-[4/3] w-full bg-slate-950 flex items-center justify-center overflow-hidden">
-        {cameraStatus === 'active' ? (
-          <>
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              className="w-full h-full object-cover -scale-x-100"
-            />
-            <canvas
-              ref={canvasRef}
-              className="absolute inset-0 w-full h-full object-cover pointer-events-none -scale-x-100"
-            />
+      {/* Video Feed Container */}
+      <div className="relative aspect-[4/3] w-full bg-slate-900 flex items-center justify-center overflow-hidden">
+        {/* Permanent Video Element */}
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          onLoadedMetadata={(e) => e.target.play().catch(() => {})}
+          className={`w-full h-full object-cover -scale-x-100 transition-opacity duration-300 ${
+            cameraStatus === 'active' ? 'opacity-100' : 'opacity-0'
+          }`}
+        />
 
-            {/* Scanning Laser Line */}
-            {scanning && (
-              <div className="absolute inset-x-8 h-1 bg-gradient-to-r from-transparent via-teal-400 to-transparent shadow-lg shadow-teal-500/50 scanner-laser pointer-events-none" />
-            )}
-          </>
-        ) : (
-          <div className="p-8 text-center flex flex-col items-center justify-center">
+        {/* Canvas HUD Overlay */}
+        <canvas
+          ref={canvasRef}
+          className={`absolute inset-0 w-full h-full object-cover pointer-events-none -scale-x-100 transition-opacity duration-300 ${
+            cameraStatus === 'active' ? 'opacity-100' : 'opacity-0'
+          }`}
+        />
+
+        {/* Scanning Laser Line */}
+        {cameraStatus === 'active' && scanning && (
+          <div className="absolute inset-x-8 h-1 bg-gradient-to-r from-transparent via-teal-400 to-transparent shadow-lg shadow-teal-500/50 scanner-laser pointer-events-none" />
+        )}
+
+        {/* Status / Permission Error Overlays */}
+        {cameraStatus !== 'active' && (
+          <div className="absolute inset-0 p-8 text-center flex flex-col items-center justify-center bg-slate-950/95 z-20">
             {cameraStatus === 'denied' ? (
               <>
                 <div className="w-16 h-16 rounded-full bg-red-500/20 text-red-400 flex items-center justify-center mb-4 border border-red-500/30">
@@ -245,7 +259,7 @@ export const CameraHUD = ({
             ) : cameraStatus === 'initializing' ? (
               <div className="flex flex-col items-center">
                 <RefreshCw className="w-8 h-8 text-teal-400 animate-spin mb-3" />
-                <span className="text-xs text-slate-300 font-medium">Initializing camera optical stream...</span>
+                <span className="text-xs text-slate-300 font-medium">Opening video stream...</span>
               </div>
             ) : (
               <>
@@ -266,13 +280,13 @@ export const CameraHUD = ({
         {cameraStatus === 'active' && (
           <>
             {/* Top Left: Optical Status */}
-            <div className="absolute top-4 left-4 flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-950/70 backdrop-blur-md border border-slate-800 text-[11px] font-mono text-teal-300">
+            <div className="absolute top-4 left-4 flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-950/70 backdrop-blur-md border border-slate-800 text-[11px] font-mono text-teal-300 z-10">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
               <span>HD CAMERA 30FPS</span>
             </div>
 
             {/* Top Right: Liveness Indicator */}
-            <div className="absolute top-4 right-4 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-950/70 backdrop-blur-md border border-slate-800 text-[11px] text-slate-300">
+            <div className="absolute top-4 right-4 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-950/70 backdrop-blur-md border border-slate-800 text-[11px] text-slate-300 z-10">
               <Eye className="w-3.5 h-3.5 text-teal-400" />
               <span>Liveness: Active</span>
             </div>
@@ -280,7 +294,7 @@ export const CameraHUD = ({
             {/* Bottom Status Banner */}
             {matchFeedback && (
               <div
-                className={`absolute bottom-4 inset-x-4 p-3 rounded-2xl backdrop-blur-lg border text-center transition-all duration-200 ${
+                className={`absolute bottom-4 inset-x-4 p-3 rounded-2xl backdrop-blur-lg border text-center transition-all duration-200 z-10 ${
                   matchFeedback.success
                     ? 'bg-emerald-950/90 border-emerald-500/50 text-emerald-100 shadow-lg shadow-emerald-900/30'
                     : 'bg-amber-950/90 border-amber-500/50 text-amber-100'
@@ -304,7 +318,7 @@ export const CameraHUD = ({
       </div>
 
       {/* Guide Controls Footer */}
-      {showGuides && cameraStatus === 'active' && (
+      {showGuides && (
         <div className="p-3 bg-slate-900/90 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-400">
           <span className="flex items-center gap-1.5">
             <Sparkles className="w-3.5 h-3.5 text-teal-400" />
