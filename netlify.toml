@@ -1,0 +1,16 @@
+[build]
+  base = "client"
+  publish = "dist"
+  command = "npm run build"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Permissions-Policy = "camera=(self)"
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
