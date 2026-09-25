@@ -1,9 +1,10 @@
 import { FaceProfile } from '../models/FaceProfile.js';
 import { User } from '../models/User.js';
+import { calculateEuclideanDistance, calculateCosineSimilarity } from '../services/faceMatcherService.js';
 
 /**
  * @route POST /api/face/enroll
- * @desc Enroll or update biometric face profile with consent validation
+ * @desc Enroll or update biometric face profile with duplicate detection and consent validation
  */
 export const enrollFace = async (req, res, next) => {
   try {
@@ -29,6 +30,27 @@ export const enrollFace = async (req, res, next) => {
     const user = await User.findById(targetUserId);
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+
+    // CRITICAL: Check for duplicate biometric profile across all other enrolled students
+    const otherProfiles = await FaceProfile.find({
+      userId: { $ne: user._id },
+      enrollmentStatus: 'enrolled',
+    }).select('+facialEmbedding').populate('userId', 'name userId email');
+
+    for (const existing of otherProfiles) {
+      if (!existing.facialEmbedding || existing.facialEmbedding.length === 0) continue;
+      const distance = calculateEuclideanDistance(facialEmbedding, existing.facialEmbedding);
+      const similarity = calculateCosineSimilarity(facialEmbedding, existing.facialEmbedding);
+
+      // If faces are too similar (distance < 0.38 or similarity > 0.88), reject as duplicate
+      if (distance < 0.38 || similarity > 0.88) {
+        return res.status(409).json({
+          success: false,
+          duplicateDetected: true,
+          message: `Biometric Conflict: This face is already enrolled for student "${existing.userId?.name || 'Another Student'}" (${existing.userId?.userId || 'ID'}). Duplicate face registration across multiple students is not permitted.`,
+        });
+      }
     }
 
     // Upsert face profile

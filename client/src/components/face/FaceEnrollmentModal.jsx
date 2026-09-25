@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import Modal from '../common/Modal';
 import CameraHUD, { playSuccessChime } from './CameraHUD';
 import apiClient from '../../api/client';
@@ -9,9 +9,10 @@ export const FaceEnrollmentModal = ({ isOpen, onClose, user, onEnrollmentComplet
   const [step, setStep] = useState('consent'); // 'consent' | 'capture' | 'complete'
   const [consentAgreed, setConsentAgreed] = useState(false);
   const [samplesCount, setSamplesCount] = useState(0);
-  const [capturedEmbedding, setCapturedEmbedding] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const collectedSamplesRef = useRef([]);
+  const lastCaptureTimeRef = useRef(0);
 
   const targetName = user?.name || 'Student';
   const targetUserId = user?.userId || 'ID';
@@ -22,19 +23,48 @@ export const FaceEnrollmentModal = ({ isOpen, onClose, user, onEnrollmentComplet
       return;
     }
     setError('');
+    collectedSamplesRef.current = [];
+    setSamplesCount(0);
     setStep('capture');
   };
 
-  const handleSampleCaptured = ({ embedding }) => {
-    if (samplesCount < 3) {
-      setSamplesCount((prev) => {
-        const next = prev + 1;
-        if (next === 3) {
-          setCapturedEmbedding(embedding);
-          submitEnrollment(embedding);
+  const handleSampleCaptured = ({ embedding, brightness }) => {
+    const now = Date.now();
+    // Space samples by at least 700ms so they represent distinct frames
+    if (now - lastCaptureTimeRef.current < 700 || submitting) {
+      return;
+    }
+    if (!embedding || !Array.isArray(embedding) || embedding.length < 16) {
+      return;
+    }
+
+    lastCaptureTimeRef.current = now;
+    collectedSamplesRef.current.push(embedding);
+    const count = collectedSamplesRef.current.length;
+    setSamplesCount(count);
+
+    if (count >= 3) {
+      // Average the 3 samples into a master biometric descriptor
+      const numDims = embedding.length;
+      const avgVec = new Array(numDims).fill(0);
+
+      collectedSamplesRef.current.forEach((sample) => {
+        for (let i = 0; i < numDims; i++) {
+          avgVec[i] += sample[i];
         }
-        return next;
       });
+
+      for (let i = 0; i < numDims; i++) {
+        avgVec[i] /= collectedSamplesRef.current.length;
+      }
+
+      // L2 Normalize
+      let normSq = 0;
+      for (let i = 0; i < numDims; i++) normSq += avgVec[i] * avgVec[i];
+      const norm = Math.sqrt(normSq) || 1;
+      const normalizedAvg = avgVec.map((v) => parseFloat((v / norm).toFixed(5)));
+
+      submitEnrollment(normalizedAvg);
     }
   };
 
@@ -58,17 +88,21 @@ export const FaceEnrollmentModal = ({ isOpen, onClose, user, onEnrollmentComplet
         setError(res.data.message || 'Enrollment failed.');
       }
     } catch (err) {
-      setError(err.response?.data?.message || err.message || 'Error communicating with server.');
+      setError(
+        err.response?.data?.message ||
+        err.message ||
+        'Error communicating with server.'
+      );
     } finally {
       setSubmitting(false);
     }
   };
 
   const handleResetAndRetry = () => {
+    collectedSamplesRef.current = [];
     setSamplesCount(0);
-    setCapturedEmbedding(null);
-    setStep('capture');
     setError('');
+    setStep('capture');
   };
 
   return (
@@ -92,7 +126,7 @@ export const FaceEnrollmentModal = ({ isOpen, onClose, user, onEnrollmentComplet
             <ul className="text-[11px] text-slate-400 space-y-1.5 list-disc pl-4">
               <li>Raw facial photos are processed in your browser and not permanently stored.</li>
               <li>Encrypted embedding vectors are strictly restricted to classroom attendance identification.</li>
-              <li>You may request profile reset or withdraw consent through your student portal or administration.</li>
+              <li>Each student must have a unique facial enrollment. Duplicate face registration across multiple accounts is rejected.</li>
             </ul>
           </div>
 
@@ -112,8 +146,8 @@ export const FaceEnrollmentModal = ({ isOpen, onClose, user, onEnrollmentComplet
           </label>
 
           {error && (
-            <div className="p-3 rounded-xl bg-red-950/80 border border-red-500/30 text-xs text-red-300 flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0" />
+            <div className="p-3.5 rounded-2xl bg-red-950/80 border border-red-500/40 text-xs text-red-200 flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-400" />
               <span>{error}</span>
             </div>
           )}
@@ -140,9 +174,9 @@ export const FaceEnrollmentModal = ({ isOpen, onClose, user, onEnrollmentComplet
         <div className="space-y-4">
           <div className="flex items-center justify-between px-1">
             <span className="text-xs text-slate-300 font-medium">
-              Capturing facial samples: <span className="text-teal-400 font-bold font-mono">{samplesCount} / 3</span>
+              Capturing unique optical samples: <span className="text-teal-400 font-bold font-mono">{samplesCount} / 3</span>
             </span>
-            <span className="text-[11px] text-slate-400">Keep face steady</span>
+            <span className="text-[11px] text-slate-400">Keep face steady in light</span>
           </div>
 
           <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
@@ -154,28 +188,31 @@ export const FaceEnrollmentModal = ({ isOpen, onClose, user, onEnrollmentComplet
 
           <CameraHUD
             active={isOpen && step === 'capture'}
-            scanning={true}
+            scanning={!submitting}
             onFaceDetected={handleSampleCaptured}
             matchFeedback={{
               success: samplesCount === 3,
-              title: samplesCount === 3 ? 'Samples Captured!' : 'Align face in camera view',
-              subtitle: samplesCount < 3 ? 'Sampling biometric features...' : 'Computing embedding vectors...',
+              title: samplesCount === 3 ? 'Samples Verified!' : 'Position Face in Guide Frame',
+              subtitle: samplesCount < 3 ? `Sample ${samplesCount + 1} of 3 • Open shutter and face camera` : 'Computing biometric vectors...',
             }}
           />
 
           {submitting && (
             <div className="flex items-center justify-center gap-2 p-3 text-xs text-teal-300 bg-teal-950/60 rounded-xl border border-teal-500/30">
               <RefreshCw className="w-4 h-4 animate-spin" />
-              <span>Saving encrypted biometric profile to cloud database...</span>
+              <span>Verifying biometric uniqueness & saving to cloud database...</span>
             </div>
           )}
 
           {error && (
-            <div className="p-3 rounded-xl bg-red-950/80 border border-red-500/30 text-xs text-red-300 flex items-center justify-between">
-              <span>{error}</span>
+            <div className="p-3.5 rounded-2xl bg-red-950/80 border border-red-500/40 text-xs text-red-200 flex items-start justify-between gap-3">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-400" />
+                <span className="leading-relaxed">{error}</span>
+              </div>
               <button
                 onClick={handleResetAndRetry}
-                className="px-2 py-1 bg-red-900/60 rounded text-[11px] font-semibold hover:bg-red-900"
+                className="px-3 py-1 bg-red-900/80 hover:bg-red-800 text-white rounded-xl text-[11px] font-bold shrink-0 transition-colors"
               >
                 Retry
               </button>
@@ -192,7 +229,7 @@ export const FaceEnrollmentModal = ({ isOpen, onClose, user, onEnrollmentComplet
           <div>
             <h4 className="text-lg font-bold text-white font-outfit">Biometric Profile Enrolled!</h4>
             <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
-              Facial features for <strong className="text-slate-200">{targetName}</strong> have been verified and permanently registered.
+              Unique optical facial biometric features for <strong className="text-slate-200">{targetName}</strong> have been verified and permanently registered in the system.
             </p>
           </div>
           <button

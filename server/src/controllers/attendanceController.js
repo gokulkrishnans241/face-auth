@@ -42,33 +42,26 @@ export const markFaceAttendance = async (req, res, next) => {
 
     const eligibleStudentIds = classroom.students.map((s) => s._id.toString());
 
-    let targetStudent = null;
-    let matchConfidence = confidence;
-
-    if (identifiedStudentId) {
-      // Direct student match passed from camera scanner or student self check-in
-      targetStudent = classroom.students.find(
-        (s) => s._id.toString() === identifiedStudentId || s.userId === identifiedStudentId
-      );
-    } else if (facialEmbedding && Array.isArray(facialEmbedding)) {
-      // Match against biometric embeddings stored in database
-      const matchResult = await matchFaceAgainstCandidates(facialEmbedding, eligibleStudentIds);
-      if (!matchResult.matchedUserId) {
-        return res.status(404).json({
-          success: false,
-          message: 'Face not recognized or student not enrolled in this classroom.',
-        });
-      }
-      targetStudent = classroom.students.find(
-        (s) => s._id.toString() === matchResult.matchedUserId.toString()
-      );
-      matchConfidence = matchResult.confidence;
-    } else {
+    if (!facialEmbedding || !Array.isArray(facialEmbedding) || facialEmbedding.length < 16) {
       return res.status(400).json({
         success: false,
-        message: 'Facial embedding vector or student identifier is required.',
+        message: 'Valid optical facial embedding descriptor is required for face verification.',
       });
     }
+
+    // Match against biometric embeddings stored in database for this classroom
+    const matchResult = await matchFaceAgainstCandidates(facialEmbedding, eligibleStudentIds);
+    if (!matchResult.matchedUserId) {
+      return res.status(404).json({
+        success: false,
+        message: 'Face not recognized. Student is not enrolled or face does not match any student in this classroom.',
+      });
+    }
+
+    const targetStudent = classroom.students.find(
+      (s) => s._id.toString() === matchResult.matchedUserId.toString()
+    );
+    const matchConfidence = matchResult.confidence;
 
     if (!targetStudent) {
       return res.status(403).json({
