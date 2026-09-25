@@ -112,37 +112,60 @@ export const StudentManagement = () => {
     }
   };
 
+  const adminSamplesRef = useRef([]);
+  const adminLastCaptureRef = useRef(0);
+
   // Step 2: Capture Face Sample via Camera
-  const handleFaceSampleCaptured = async ({ embedding }) => {
-    if (capturedSamples < 3) {
-      const next = capturedSamples + 1;
-      setCapturedSamples(next);
+  const handleFaceSampleCaptured = async ({ embedding, personConfidence }) => {
+    const now = Date.now();
+    if (now - adminLastCaptureRef.current < 750 || saving) return;
+    if (!embedding || !Array.isArray(embedding) || embedding.length < 16) return;
 
-      if (next === 3) {
-        setCapturedEmbedding(embedding);
-        setSaving(true);
-        try {
-          const targetUser = createdStudent || reEnrollStudent;
-          const res = await apiClient.post('/face/enroll', {
-            userId: targetUser._id,
-            facialEmbedding: embedding,
-            biometricConsent: true,
-            imageQualityScore: 0.98,
-          });
+    adminLastCaptureRef.current = now;
+    adminSamplesRef.current.push(embedding);
+    const next = adminSamplesRef.current.length;
+    setCapturedSamples(next);
 
-          if (res.data.success) {
-            playSuccessChime();
-            confetti({ particleCount: 60, spread: 70, origin: { y: 0.6 } });
-            setAddStep('success');
-            fetchData();
-          } else {
-            setError(res.data.message || 'Face enrollment failed.');
-          }
-        } catch (err) {
-          setError(err.response?.data?.message || 'Error saving face embedding.');
-        } finally {
-          setSaving(false);
+    if (next >= 3) {
+      setSaving(true);
+      setError('');
+      try {
+        const targetUser = createdStudent || reEnrollStudent;
+        const numDims = embedding.length;
+        const avgVec = new Array(numDims).fill(0);
+        adminSamplesRef.current.forEach((s) => {
+          for (let i = 0; i < numDims; i++) avgVec[i] += s[i];
+        });
+        for (let i = 0; i < numDims; i++) avgVec[i] /= adminSamplesRef.current.length;
+
+        let normSq = 0;
+        for (let i = 0; i < numDims; i++) normSq += avgVec[i] * avgVec[i];
+        const norm = Math.sqrt(normSq) || 1;
+        const normalizedAvg = avgVec.map((v) => parseFloat((v / norm).toFixed(5)));
+
+        const res = await apiClient.post('/face/enroll', {
+          userId: targetUser._id,
+          facialEmbedding: normalizedAvg,
+          biometricConsent: true,
+          imageQualityScore: 0.98,
+        });
+
+        if (res.data.success) {
+          playSuccessChime();
+          confetti({ particleCount: 60, spread: 70, origin: { y: 0.6 } });
+          setAddStep('success');
+          fetchData();
+        } else {
+          setError(res.data.message || 'Face enrollment failed.');
+          adminSamplesRef.current = [];
+          setCapturedSamples(0);
         }
+      } catch (err) {
+        setError(err.response?.data?.message || 'Error saving face embedding.');
+        adminSamplesRef.current = [];
+        setCapturedSamples(0);
+      } finally {
+        setSaving(false);
       }
     }
   };

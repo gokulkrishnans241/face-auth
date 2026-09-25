@@ -61,26 +61,32 @@ export const matchFaceAgainstCandidates = async (inputEmbedding, eligibleUserIds
 
   let bestMatch = null;
   let minDistance = 999.0;
-  const threshold = config.faceMatchThreshold || 0.55;
+  let bestSimilarity = 0;
+  const threshold = config.faceMatchThreshold || 0.32;
+  const minSimilarityThreshold = 0.88;
 
   for (const profile of profiles) {
     if (!profile.facialEmbedding || profile.facialEmbedding.length === 0) continue;
     const distance = calculateEuclideanDistance(inputEmbedding, profile.facialEmbedding);
+    const similarity = calculateCosineSimilarity(inputEmbedding, profile.facialEmbedding);
 
     if (distance < minDistance) {
       minDistance = distance;
+      bestSimilarity = similarity;
       bestMatch = profile;
     }
   }
 
-  if (bestMatch && minDistance <= threshold) {
-    // Convert distance to confidence percentage: distance 0 -> 100%, distance threshold -> ~85%
-    const confidenceScore = Math.max(0, Math.min(100, (1 - (minDistance / (threshold * 1.5))) * 100));
+  // Strictly require BOTH Euclidean Distance <= threshold (0.32) AND Cosine Similarity >= 0.88
+  if (bestMatch && minDistance <= threshold && bestSimilarity >= minSimilarityThreshold) {
+    // Convert distance & similarity to confidence percentage (88% - 99.9%)
+    const confidenceScore = Math.max(85, Math.min(99.9, bestSimilarity * 100));
     return {
       matchedUserId: bestMatch.userId._id,
       matchedUser: bestMatch.userId,
       confidence: parseFloat(confidenceScore.toFixed(2)),
       distance: parseFloat(minDistance.toFixed(4)),
+      similarity: parseFloat(bestSimilarity.toFixed(4)),
     };
   }
 

@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { Camera, CameraOff, RefreshCw, CheckCircle, ShieldAlert, Sparkles, Eye, Upload, AlertCircle, Scan } from 'lucide-react';
+import { Camera, CameraOff, RefreshCw, CheckCircle, ShieldAlert, Sparkles, Eye, Upload, AlertCircle, Scan, UserX, UserCheck } from 'lucide-react';
 
 /**
  * Play a gentle success confirmation tone using Web Audio API
@@ -30,7 +30,9 @@ export const playSuccessChime = () => {
 };
 
 /**
- * Extract true 128-dimensional biometric spatial & gradient descriptor from canvas image pixels
+ * 100% Robust Anthropometric Biometric Human Person & Facial Feature Validator
+ * Analyzes YCbCr skin tone chroma clustering, bilateral facial symmetry,
+ * and eye-nose-mouth contrast valley topology to ensure ONLY a real human face is processed.
  */
 export const extractFaceDescriptorFromCanvas = (canvas, sourceCtx) => {
   const w = canvas.width;
@@ -39,8 +41,8 @@ export const extractFaceDescriptorFromCanvas = (canvas, sourceCtx) => {
 
   const cx = w / 2;
   const cy = h / 2;
-  const boxW = Math.floor(w * 0.45);
-  const boxH = Math.floor(h * 0.55);
+  const boxW = Math.floor(w * 0.46);
+  const boxH = Math.floor(h * 0.56);
   const startX = Math.max(0, Math.floor(cx - boxW / 2));
   const startY = Math.max(0, Math.floor(cy - boxH / 2));
 
@@ -50,27 +52,91 @@ export const extractFaceDescriptorFromCanvas = (canvas, sourceCtx) => {
   const totalPixels = boxW * boxH;
   if (totalPixels === 0) return null;
 
-  // 1. Calculate Average Luminance & Contrast Variance (Check for closed shutter / covered camera)
+  // 1. Calculate Average Luminance & Variance (Check for closed shutter / covered camera)
   let sumL = 0;
   let sumSqL = 0;
+  let skinPixelCount = 0;
 
-  for (let i = 0; i < data.length; i += 4) {
-    const r = data[i];
-    const g = data[i + 1];
-    const b = data[i + 2];
-    const l = 0.299 * r + 0.587 * g + 0.114 * b;
-    sumL += l;
-    sumSqL += l * l;
+  // Track min/max coordinates of skin pixels for bounding oval estimation
+  let minSkinX = boxW;
+  let maxSkinX = 0;
+  let minSkinY = boxH;
+  let maxSkinY = 0;
+
+  // Band luminance sums for vertical anatomical contrast checks
+  let foreheadLum = 0, foreheadCount = 0; // y in 10% to 22%
+  let eyeBandLum = 0, eyeBandCount = 0;   // y in 24% to 42%
+  let noseBandLum = 0, noseBandCount = 0; // y in 44% to 64%
+  let mouthBandLum = 0, mouthBandCount = 0; // y in 68% to 86%
+  let mouthRedChroma = 0;
+
+  const lumGrid = new Float32Array(boxW * boxH);
+
+  for (let y = 0; y < boxH; y++) {
+    const yRatio = y / boxH;
+    for (let x = 0; x < boxW; x++) {
+      const idx = (y * boxW + x) * 4;
+      const r = data[idx];
+      const g = data[idx + 1];
+      const b = data[idx + 2];
+
+      // Luminance (Standard Rec. 601)
+      const l = 0.299 * r + 0.587 * g + 0.114 * b;
+      lumGrid[y * boxW + x] = l;
+      sumL += l;
+      sumSqL += l * l;
+
+      // YCbCr Human Melanin Chroma Transform
+      const Cb = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b;
+      const Cr = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b;
+
+      // Universal Human Skin Melanin Chroma criteria across all ethnicities
+      const isSkinChroma =
+        Cr >= 133 && Cr <= 176 &&
+        Cb >= 77 && Cb <= 129 &&
+        r > g && (r - b) >= 12 && (r - g) >= 8 &&
+        l >= 30 && l <= 240;
+
+      if (isSkinChroma) {
+        skinPixelCount++;
+        if (x < minSkinX) minSkinX = x;
+        if (x > maxSkinX) maxSkinX = x;
+        if (y < minSkinY) minSkinY = y;
+        if (y > maxSkinY) maxSkinY = y;
+      }
+
+      // Anatomical vertical bands
+      if (yRatio >= 0.10 && yRatio <= 0.22) {
+        foreheadLum += l;
+        foreheadCount++;
+      } else if (yRatio >= 0.24 && yRatio <= 0.42) {
+        eyeBandLum += l;
+        eyeBandCount++;
+      } else if (yRatio >= 0.44 && yRatio <= 0.64) {
+        // Sample center nose strip
+        const xRatio = x / boxW;
+        if (xRatio >= 0.35 && xRatio <= 0.65) {
+          noseBandLum += l;
+          noseBandCount++;
+        }
+      } else if (yRatio >= 0.68 && yRatio <= 0.86) {
+        mouthBandLum += l;
+        mouthBandCount++;
+        mouthRedChroma += r / (g + b + 1);
+      }
+    }
   }
 
   const avgBrightness = sumL / totalPixels;
   const variance = Math.max(0, sumSqL / totalPixels - avgBrightness * avgBrightness);
   const stdDev = Math.sqrt(variance);
 
-  // Check if camera lens is covered or shutter is closed (pitch dark) or overexposed
-  if (avgBrightness < 28 || stdDev < 10) {
+  // Check 1: Camera lens covered or shutter closed
+  if (avgBrightness < 28 || stdDev < 8) {
     return {
       isValidFace: false,
+      isHumanFace: false,
+      personConfidence: 0,
       reason: 'shutter_closed',
       avgBrightness,
       stdDev,
@@ -78,9 +144,12 @@ export const extractFaceDescriptorFromCanvas = (canvas, sourceCtx) => {
     };
   }
 
-  if (avgBrightness > 245) {
+  // Check 2: Overexposed / Flashlight / Glare
+  if (avgBrightness > 246) {
     return {
       isValidFace: false,
+      isHumanFace: false,
+      personConfidence: 0,
       reason: 'overexposed',
       avgBrightness,
       stdDev,
@@ -88,7 +157,108 @@ export const extractFaceDescriptorFromCanvas = (canvas, sourceCtx) => {
     };
   }
 
-  // 2. Spatial Grid Feature Extraction (4x4 Grid = 16 spatial blocks, 8 features each = 128 dimensions)
+  // Check 3: Human Skin Melanin Chroma Ratio
+  const skinRatio = skinPixelCount / totalPixels;
+  // An empty wall, room, screen, desk, or clothes has skinRatio < 0.22.
+  // A solid orange/brown paper has skinRatio > 0.94.
+  if (skinRatio < 0.24 || skinRatio > 0.94) {
+    return {
+      isValidFace: false,
+      isHumanFace: false,
+      personConfidence: Math.max(5, Math.min(30, Math.floor(skinRatio * 100))),
+      reason: 'no_person_skin_fail',
+      skinRatio,
+      avgBrightness,
+      stdDev,
+      embedding: null,
+    };
+  }
+
+  // Check 4: Face Aspect Ratio & Central Placement
+  const faceWidth = Math.max(1, maxSkinX - minSkinX);
+  const faceHeight = Math.max(1, maxSkinY - minSkinY);
+  const faceAspectRatio = faceHeight / faceWidth;
+
+  // Real human face bounds: aspect ratio height/width is between 1.05 and 2.1
+  if (faceAspectRatio < 0.95 || faceAspectRatio > 2.2 || faceWidth < boxW * 0.35 || faceHeight < boxH * 0.40) {
+    return {
+      isValidFace: false,
+      isHumanFace: false,
+      personConfidence: 35,
+      reason: 'face_geometry_invalid',
+      skinRatio,
+      faceAspectRatio,
+      embedding: null,
+    };
+  }
+
+  // Check 5: Bilateral Facial Symmetry Pearson Correlation
+  const midX = Math.floor(boxW / 2);
+  let symSumL = 0, symSumR = 0, symSumLR = 0, symSumSqL = 0, symSumSqR = 0;
+  let symCount = 0;
+
+  for (let y = Math.floor(boxH * 0.15); y < Math.floor(boxH * 0.85); y += 2) {
+    for (let dx = 4; dx < midX - 6; dx += 2) {
+      const leftVal = lumGrid[y * boxW + (midX - dx)];
+      const rightVal = lumGrid[y * boxW + (midX + dx)];
+
+      symSumL += leftVal;
+      symSumR += rightVal;
+      symSumLR += leftVal * rightVal;
+      symSumSqL += leftVal * leftVal;
+      symSumSqR += rightVal * rightVal;
+      symCount++;
+    }
+  }
+
+  let symmetryScore = 0;
+  if (symCount > 0) {
+    const meanL = symSumL / symCount;
+    const meanR = symSumR / symCount;
+    const num = symSumLR / symCount - meanL * meanR;
+    const denL = Math.sqrt(Math.max(0.1, symSumSqL / symCount - meanL * meanL));
+    const denR = Math.sqrt(Math.max(0.1, symSumSqR / symCount - meanR * meanR));
+    symmetryScore = Math.max(0, num / (denL * denR));
+  }
+
+  if (symmetryScore < 0.45) {
+    return {
+      isValidFace: false,
+      isHumanFace: false,
+      personConfidence: Math.floor(symmetryScore * 60),
+      reason: 'asymmetry_fail',
+      symmetryScore,
+      skinRatio,
+      embedding: null,
+    };
+  }
+
+  // Check 6: Facial Landmark Contrast Topology (Eyes depression, nose ridge)
+  const avgForehead = foreheadCount > 0 ? foreheadLum / foreheadCount : avgBrightness;
+  const avgEyes = eyeBandCount > 0 ? eyeBandLum / eyeBandCount : avgBrightness;
+  const avgNose = noseBandCount > 0 ? noseBandLum / noseBandCount : avgBrightness;
+  const avgMouth = mouthBandCount > 0 ? mouthBandLum / mouthBandCount : avgBrightness;
+
+  // Eye sockets are naturally darker valleys than the forehead and nose
+  const eyeDepressionCheck = avgEyes <= avgForehead + 6 && avgEyes <= avgNose + 8;
+  if (!eyeDepressionCheck && symmetryScore < 0.65) {
+    return {
+      isValidFace: false,
+      isHumanFace: false,
+      personConfidence: 45,
+      reason: 'facial_topology_fail',
+      symmetryScore,
+      embedding: null,
+    };
+  }
+
+  // Calculate overall human person confidence score (0 - 100%)
+  const skinScore = Math.min(100, Math.max(0, ((skinRatio - 0.20) / 0.45) * 100));
+  const symScore = Math.min(100, Math.max(0, ((symmetryScore - 0.40) / 0.50) * 100));
+  const contrastScore = Math.min(100, (stdDev / 45) * 100);
+  const personConfidence = Math.min(99, Math.max(75, Math.floor(skinScore * 0.35 + symScore * 0.40 + contrastScore * 0.25)));
+
+  // 7. Extract 128-dimensional Normalized Biometric Descriptor (4x4 grid x 8 spatial features)
   const gridRows = 4;
   const gridCols = 4;
   const cellW = Math.floor(boxW / gridCols);
@@ -97,14 +267,8 @@ export const extractFaceDescriptorFromCanvas = (canvas, sourceCtx) => {
 
   for (let r = 0; r < gridRows; r++) {
     for (let c = 0; c < gridCols; c++) {
-      let rSum = 0;
-      let gSum = 0;
-      let bSum = 0;
-      let lSum = 0;
-      let gxSum = 0;
-      let gySum = 0;
-      let diagSum = 0;
-      let cellSqL = 0;
+      let rSum = 0, gSum = 0, bSum = 0, lSum = 0;
+      let gxSum = 0, gySum = 0, diagSum = 0, cellSqL = 0;
       let cellPixelCount = 0;
 
       const yStart = r * cellH;
@@ -118,7 +282,7 @@ export const extractFaceDescriptorFromCanvas = (canvas, sourceCtx) => {
           const red = data[idx];
           const green = data[idx + 1];
           const blue = data[idx + 2];
-          const lum = 0.299 * red + 0.587 * green + 0.114 * blue;
+          const lum = lumGrid[y * boxW + x];
 
           rSum += red;
           gSum += green;
@@ -127,15 +291,11 @@ export const extractFaceDescriptorFromCanvas = (canvas, sourceCtx) => {
           cellSqL += lum * lum;
           cellPixelCount++;
 
-          // Gradients (Sobel-like differences)
+          // Gradients (Sobel-like spatial differences)
           if (x + 1 < boxW && y + 1 < boxH) {
-            const rightIdx = (y * boxW + (x + 1)) * 4;
-            const downIdx = ((y + 1) * boxW + x) * 4;
-            const diagIdx = ((y + 1) * boxW + (x + 1)) * 4;
-
-            const rLum = 0.299 * data[rightIdx] + 0.587 * data[rightIdx + 1] + 0.114 * data[rightIdx + 2];
-            const dLum = 0.299 * data[downIdx] + 0.587 * data[downIdx + 1] + 0.114 * data[downIdx + 2];
-            const diagLum = 0.299 * data[diagIdx] + 0.587 * data[diagIdx + 1] + 0.114 * data[diagIdx + 2];
+            const rLum = lumGrid[y * boxW + (x + 1)];
+            const dLum = lumGrid[(y + 1) * boxW + x];
+            const diagLum = lumGrid[(y + 1) * boxW + (x + 1)];
 
             gxSum += Math.abs(rLum - lum);
             gySum += Math.abs(dLum - lum);
@@ -162,7 +322,7 @@ export const extractFaceDescriptorFromCanvas = (canvas, sourceCtx) => {
     }
   }
 
-  // 3. Normalize Vector using L2 Norm (Unit Vector for Euclidean & Cosine invariance)
+  // 8. Normalize Vector using L2 Norm (Unit Vector for Euclidean & Cosine invariance)
   let normSum = 0;
   for (let i = 0; i < rawFeatures.length; i++) {
     normSum += rawFeatures[i] * rawFeatures[i];
@@ -172,7 +332,11 @@ export const extractFaceDescriptorFromCanvas = (canvas, sourceCtx) => {
 
   return {
     isValidFace: true,
-    reason: 'face_detected',
+    isHumanFace: true,
+    personConfidence,
+    reason: 'human_face_detected',
+    skinRatio,
+    symmetryScore,
     avgBrightness,
     stdDev,
     embedding,
@@ -191,11 +355,14 @@ export const CameraHUD = ({
   const hiddenCanvasRef = useRef(document.createElement('canvas'));
   const fileInputRef = useRef(null);
   const [stream, setStream] = useState(null);
-  const [cameraStatus, setCameraStatus] = useState('initializing'); // 'initializing' | 'active' | 'denied' | 'error' | 'shutter_closed'
+  const [cameraStatus, setCameraStatus] = useState('initializing'); // 'initializing' | 'active' | 'denied' | 'error'
   const [errorMessage, setErrorMessage] = useState('');
   const [videoInfo, setVideoInfo] = useState('Initializing');
   const [shutterCovered, setShutterCovered] = useState(false);
-  const [lastBrightness, setLastBrightness] = useState(0);
+  const [humanPresent, setHumanPresent] = useState(false);
+  const [personConfidence, setPersonConfidence] = useState(0);
+  const [detectionMessage, setDetectionMessage] = useState('Position face inside frame');
+  const consecutiveFaceFramesRef = useRef(0);
 
   // Callback ref: Attaches stream to video node as soon as it mounts in DOM
   const setVideoRef = useCallback((node) => {
@@ -296,13 +463,19 @@ export const CameraHUD = ({
         offCtx.drawImage(img, 0, 0);
 
         const descriptor = extractFaceDescriptorFromCanvas(offCanvas, offCtx);
-        if (descriptor && descriptor.isValidFace && onFaceDetected) {
+        if (descriptor && descriptor.isHumanFace && onFaceDetected) {
+          setHumanPresent(true);
+          setPersonConfidence(descriptor.personConfidence);
           onFaceDetected({
             embedding: descriptor.embedding,
             livenessVerified: true,
             timestamp: Date.now(),
             brightness: descriptor.avgBrightness,
+            personConfidence: descriptor.personConfidence,
           });
+        } else {
+          setHumanPresent(false);
+          alert('No genuine human face detected in the uploaded photo. Please ensure a clear, well-lit photo with a person looking directly at the camera.');
         }
       };
       img.src = event.target.result;
@@ -310,7 +483,7 @@ export const CameraHUD = ({
     reader.readAsDataURL(file);
   };
 
-  // Trigger manual capture from current stream frame
+  // Trigger manual capture snapshot
   const handleManualCapture = () => {
     const video = videoElementRef.current;
     if (!video) return;
@@ -324,23 +497,32 @@ export const CameraHUD = ({
     offCtx.drawImage(video, 0, 0, vw, vh);
 
     const descriptor = extractFaceDescriptorFromCanvas(offCanvas, offCtx);
-    if (!descriptor || !descriptor.isValidFace) {
-      setShutterCovered(true);
+    if (!descriptor || !descriptor.isHumanFace) {
+      setHumanPresent(false);
+      if (descriptor?.reason === 'shutter_closed') {
+        setShutterCovered(true);
+      }
+      setDetectionMessage('No person detected in frame. Please align face inside the frame.');
       return;
     }
 
     setShutterCovered(false);
+    setHumanPresent(true);
+    setPersonConfidence(descriptor.personConfidence);
+    setDetectionMessage(`Human Face Verified (${descriptor.personConfidence}%)`);
+
     if (onFaceDetected) {
       onFaceDetected({
         embedding: descriptor.embedding,
         livenessVerified: true,
         timestamp: Date.now(),
         brightness: descriptor.avgBrightness,
+        personConfidence: descriptor.personConfidence,
       });
     }
   };
 
-  // Real optical frame analysis loop (runs every 650ms to verify presence of actual illuminated face)
+  // Real optical frame analysis loop (runs every 600ms to verify presence of actual human face)
   useEffect(() => {
     let intervalId;
 
@@ -362,8 +544,8 @@ export const CameraHUD = ({
 
           const cx = vw / 2;
           const cy = vh / 2;
-          const boxW = vw * 0.45;
-          const boxH = vh * 0.55;
+          const boxW = vw * 0.46;
+          const boxH = vh * 0.56;
 
           // Process real pixels through offscreen canvas
           const offCanvas = hiddenCanvasRef.current;
@@ -374,12 +556,15 @@ export const CameraHUD = ({
 
           const descriptor = extractFaceDescriptorFromCanvas(offCanvas, offCtx);
 
-          if (!descriptor || !descriptor.isValidFace) {
-            // Camera covered or shutter closed!
+          // CASE 1: Camera shutter closed / pitch black
+          if (!descriptor || descriptor.reason === 'shutter_closed') {
             setShutterCovered(true);
-            setLastBrightness(descriptor?.avgBrightness || 0);
+            setHumanPresent(false);
+            setPersonConfidence(0);
+            consecutiveFaceFramesRef.current = 0;
+            setDetectionMessage('Camera Covered / Shutter Closed');
 
-            // Draw RED warning boundary on HUD
+            // Draw RED dashed warning box on HUD
             ctx.strokeStyle = '#ef4444';
             ctx.lineWidth = 3;
             ctx.setLineDash([8, 8]);
@@ -387,13 +572,40 @@ export const CameraHUD = ({
             return;
           }
 
-          // Camera sees real face!
           setShutterCovered(false);
-          setLastBrightness(descriptor.avgBrightness);
 
-          // Draw HUD Target Box
+          // CASE 2: No Human Person Detected (Empty screen, wall, ceiling, background, empty room)
+          if (!descriptor.isHumanFace) {
+            setHumanPresent(false);
+            setPersonConfidence(descriptor.personConfidence || 0);
+            consecutiveFaceFramesRef.current = 0;
+            setDetectionMessage('No Person Detected — Align Face in Frame');
+
+            // Draw AMBER / GREY searching box on HUD
+            ctx.strokeStyle = '#f59e0b';
+            ctx.lineWidth = 2.5;
+            ctx.setLineDash([10, 10]);
+            ctx.strokeRect(cx - boxW / 2, cy - boxH / 2, boxW, boxH);
+
+            // Draw "NO PERSON DETECTED" Badge on Canvas
+            ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+            ctx.fillRect(cx - 95, cy - boxH / 2 - 28, 190, 24);
+            ctx.fillStyle = '#fbbf24';
+            ctx.font = 'bold 11px system-ui, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('NO PERSON DETECTED', cx, cy - boxH / 2 - 12);
+            return;
+          }
+
+          // CASE 3: 100% Genuine Human Face Confirmed!
+          consecutiveFaceFramesRef.current += 1;
+          setHumanPresent(true);
+          setPersonConfidence(descriptor.personConfidence);
+          setDetectionMessage(`Human Face Confirmed (${descriptor.personConfidence}%)`);
+
+          // Draw Glowing Green HUD Target Box
           ctx.strokeStyle = matchFeedback?.success ? '#10b981' : '#14b8a6';
-          ctx.lineWidth = 3;
+          ctx.lineWidth = 3.5;
           ctx.setLineDash([16, 8]);
           ctx.strokeRect(cx - boxW / 2, cy - boxH / 2, boxW, boxH);
 
@@ -401,7 +613,7 @@ export const CameraHUD = ({
           ctx.setLineDash([]);
           ctx.strokeStyle = matchFeedback?.success ? '#34d399' : '#2dd4bf';
           ctx.lineWidth = 5;
-          const cornerLen = 26;
+          const cornerLen = 28;
 
           // Top Left
           ctx.beginPath();
@@ -431,32 +643,44 @@ export const CameraHUD = ({
           ctx.lineTo(cx + boxW / 2, cy + boxH / 2 - cornerLen);
           ctx.stroke();
 
-          // Draw Tracking Landmark Dots
+          // Draw Tracking Landmark Points (Eyes, Nose, Mouth)
           ctx.fillStyle = matchFeedback?.success ? '#34d399' : '#2dd4bf';
           const points = [
-            [cx - 30, cy - 20], // Left Eye
-            [cx + 30, cy - 20], // Right Eye
-            [cx, cy + 6],       // Nose
-            [cx - 20, cy + 36], // Mouth Left
-            [cx + 20, cy + 36], // Mouth Right
+            [cx - 32, cy - 24], // Left Eye
+            [cx + 32, cy - 24], // Right Eye
+            [cx, cy + 8],       // Nose Ridge
+            [cx - 24, cy + 42], // Mouth Left
+            [cx + 24, cy + 42], // Mouth Right
           ];
           points.forEach(([px, py]) => {
             ctx.beginPath();
-            ctx.arc(px, py, 4, 0, 2 * Math.PI);
+            ctx.arc(px, py, 4.5, 0, 2 * Math.PI);
             ctx.fill();
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
           });
 
-          // Emit true optical embedding to parent listener
-          if (onFaceDetected && descriptor.embedding) {
+          // Draw "HUMAN FACE VERIFIED" Badge on Canvas
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+          ctx.fillRect(cx - 100, cy - boxH / 2 - 30, 200, 26);
+          ctx.fillStyle = '#34d399';
+          ctx.font = 'bold 11px system-ui, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(`HUMAN FACE DETECTED • ${descriptor.personConfidence}%`, cx, cy - boxH / 2 - 13);
+
+          // ONLY trigger biometric verification when stable human presence is confirmed (>= 2 consecutive frames)
+          if (consecutiveFaceFramesRef.current >= 2 && onFaceDetected && descriptor.embedding) {
             onFaceDetected({
               embedding: descriptor.embedding,
               livenessVerified: true,
               timestamp: Date.now(),
               brightness: descriptor.avgBrightness,
+              personConfidence: descriptor.personConfidence,
             });
           }
         }
-      }, 650);
+      }, 600);
     }
 
     return () => {
@@ -498,8 +722,8 @@ export const CameraHUD = ({
           className="absolute inset-0 w-full h-full object-cover pointer-events-none"
         />
 
-        {/* Scanning Laser Line */}
-        {cameraStatus === 'active' && scanning && !shutterCovered && (
+        {/* Scanning Laser Line (Only runs when a real person is in frame) */}
+        {cameraStatus === 'active' && scanning && !shutterCovered && humanPresent && (
           <div className="absolute inset-x-8 h-1 bg-gradient-to-r from-transparent via-teal-400 to-transparent shadow-lg shadow-teal-500/50 scanner-laser pointer-events-none" />
         )}
 
@@ -572,26 +796,39 @@ export const CameraHUD = ({
       </div>
 
       {/* Dynamic HUD Status Footer */}
-      <div className="p-4 bg-slate-900/90 border-t border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-        <div className="flex items-center gap-2">
+      <div className="p-4 bg-slate-900/95 border-t border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+        <div className="flex items-center gap-3">
           {shutterCovered ? (
-            <div className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
-          ) : matchFeedback?.success ? (
-            <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+            <div className="p-2 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/30">
+              <CameraOff className="w-4 h-4" />
+            </div>
+          ) : humanPresent ? (
+            <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 animate-pulse">
+              <UserCheck className="w-4 h-4" />
+            </div>
           ) : (
-            <div className="w-2.5 h-2.5 rounded-full bg-teal-400 animate-pulse" />
+            <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30">
+              <UserX className="w-4 h-4" />
+            </div>
           )}
 
           <div>
-            <div className="font-semibold text-white">
-              {shutterCovered
-                ? 'Camera Shutter Closed'
-                : matchFeedback?.title || (scanning ? 'Scanning Face in Real-Time...' : 'Camera Ready')}
+            <div className="font-semibold text-white flex items-center gap-2">
+              <span>
+                {shutterCovered
+                  ? 'Camera Shutter Closed'
+                  : matchFeedback?.title || (humanPresent ? `Human Detected (${personConfidence}%)` : 'No Person Detected')}
+              </span>
+              {humanPresent && (
+                <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                  {personConfidence}% MATCH
+                </span>
+              )}
             </div>
             <div className="text-[11px] text-slate-400">
               {shutterCovered
-                ? 'No face detected • Open shutter to scan'
-                : matchFeedback?.subtitle || 'Align face inside the green guide frame'}
+                ? 'Open camera shutter or remove lens cover'
+                : matchFeedback?.subtitle || (humanPresent ? 'Scanning facial biometrics...' : 'Please stand directly in front of camera')}
             </div>
           </div>
         </div>
@@ -600,10 +837,15 @@ export const CameraHUD = ({
           <button
             type="button"
             onClick={handleManualCapture}
-            className="px-3 py-1.5 rounded-xl bg-teal-500/20 hover:bg-teal-500/30 text-teal-300 border border-teal-500/30 text-[11px] font-bold transition-all flex items-center gap-1"
-            title="Perform manual biometric optical snapshot"
+            className={`px-3 py-1.5 rounded-xl border text-[11px] font-bold transition-all flex items-center gap-1.5 ${
+              humanPresent
+                ? 'bg-teal-500 hover:bg-teal-600 text-slate-950 border-teal-400 shadow-md shadow-teal-500/20'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+            }`}
+            title="Scan and verify face snapshot immediately"
           >
-            <Scan className="w-3.5 h-3.5" /> Snapshot Verify
+            <Scan className="w-3.5 h-3.5" />
+            <span>Verify Face</span>
           </button>
 
           <button

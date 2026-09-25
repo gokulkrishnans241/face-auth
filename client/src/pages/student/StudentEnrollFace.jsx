@@ -32,32 +32,54 @@ export const StudentEnrollFace = () => {
     setStep('capture');
   };
 
-  const handleSampleCaptured = async ({ embedding }) => {
-    if (samplesCount < 3) {
-      const next = samplesCount + 1;
-      setSamplesCount(next);
+  const samplesRef = React.useRef([]);
+  const lastCaptureRef = React.useRef(0);
 
-      if (next === 3) {
-        setSubmitting(true);
-        try {
-          const res = await apiClient.post('/face/enroll', {
-            facialEmbedding: embedding,
-            biometricConsent: true,
-            imageQualityScore: 0.98,
-          });
+  const handleSampleCaptured = async ({ embedding, personConfidence }) => {
+    const now = Date.now();
+    if (now - lastCaptureRef.current < 750 || submitting) return;
+    if (!embedding || !Array.isArray(embedding) || embedding.length < 16) return;
 
-          if (res.data.success) {
-            playSuccessChime();
-            confetti({ particleCount: 70, spread: 80, origin: { y: 0.6 } });
-            setMessage('Your facial biometric profile has been successfully enrolled!');
-            setStep('complete');
-            refreshUser();
-          }
-        } catch (err) {
-          setError(err.response?.data?.message || 'Error submitting biometric data.');
-        } finally {
-          setSubmitting(false);
+    lastCaptureRef.current = now;
+    samplesRef.current.push(embedding);
+    const count = samplesRef.current.length;
+    setSamplesCount(count);
+
+    if (count >= 3) {
+      setSubmitting(true);
+      setError('');
+      try {
+        const numDims = embedding.length;
+        const avgVec = new Array(numDims).fill(0);
+        samplesRef.current.forEach((s) => {
+          for (let i = 0; i < numDims; i++) avgVec[i] += s[i];
+        });
+        for (let i = 0; i < numDims; i++) avgVec[i] /= samplesRef.current.length;
+
+        let normSq = 0;
+        for (let i = 0; i < numDims; i++) normSq += avgVec[i] * avgVec[i];
+        const norm = Math.sqrt(normSq) || 1;
+        const normalizedAvg = avgVec.map((v) => parseFloat((v / norm).toFixed(5)));
+
+        const res = await apiClient.post('/face/enroll', {
+          facialEmbedding: normalizedAvg,
+          biometricConsent: true,
+          imageQualityScore: 0.98,
+        });
+
+        if (res.data.success) {
+          playSuccessChime();
+          confetti({ particleCount: 70, spread: 80, origin: { y: 0.6 } });
+          setMessage('Your facial biometric profile has been successfully enrolled!');
+          setStep('complete');
+          refreshUser();
         }
+      } catch (err) {
+        setError(err.response?.data?.message || 'Error submitting biometric data.');
+        samplesRef.current = [];
+        setSamplesCount(0);
+      } finally {
+        setSubmitting(false);
       }
     }
   };
