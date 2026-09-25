@@ -1,164 +1,32 @@
-import React, { useState, useEffect } from 'react';
-import apiClient from '../../api/client';
+import React from 'react';
 import ClassroomPeriodMatrix from '../../components/attendance/ClassroomPeriodMatrix';
-import { downloadExcelReport } from '../../utils/exportUtils';
-import {
-  FileSpreadsheet,
-  Download,
-  Calendar,
-  Building2,
-  CheckCircle2,
-  FileText,
-  Layers,
-  Sparkles,
-} from 'lucide-react';
-import { format } from 'date-fns';
+import { Building2, Sparkles } from 'lucide-react';
 
 export const FacultyReports = () => {
-  const today = format(new Date(), 'yyyy-MM-dd');
-  const [startDate, setStartDate] = useState(today);
-  const [endDate, setEndDate] = useState(today);
-  const [classrooms, setClassrooms] = useState([]);
-  const [selectedClassroomId, setSelectedClassroomId] = useState('');
-  const [downloading, setDownloading] = useState(false);
-  const [message, setMessage] = useState('');
-
-  useEffect(() => {
-    const fetchAssignedClassrooms = async () => {
-      try {
-        const res = await apiClient.get('/classrooms');
-        if (res.data.success) {
-          setClassrooms(res.data.classrooms);
-          if (res.data.classrooms.length > 0) {
-            setSelectedClassroomId(res.data.classrooms[0]._id);
-          }
-        }
-      } catch (err) {
-        console.error('Fetch faculty classrooms error:', err);
-      }
-    };
-    fetchAssignedClassrooms();
-  }, []);
-
-  const handleExportExcel = async () => {
-    setDownloading(true);
-    setMessage('');
-    try {
-      await downloadExcelReport({
-        startDate,
-        endDate,
-        classroomId: selectedClassroomId,
-        customFilename: `Faculty_Attendance_Report_${startDate}_to_${endDate}.xlsx`,
-      });
-      setMessage('Attendance Excel workbook downloaded successfully.');
-    } catch (err) {
-      setMessage(err.message || 'Failed to download Excel report.');
-    } finally {
-      setDownloading(false);
-    }
-  };
-
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="p-5 rounded-3xl glass-panel flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="p-5 sm:p-6 rounded-3xl glass-panel flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl sm:text-2xl font-extrabold text-white font-outfit">
-              Faculty Attendance Reports & Class Summary
+              Faculty Classroom Summary
             </h1>
             <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-teal-500/20 text-teal-300 border border-teal-500/30">
-              OFFICIAL REPORTS
+              7 CLASSES • PERIODS 1-7
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-0.5">
-            Download authorized 5-sheet Excel workbooks and view real-time period-by-period attendance matrices
+            View period 1 to 7 attendance matrix for all classrooms • 1-click status override & download XML / Excel sheets
           </p>
-        </div>
-      </div>
-
-      {message && (
-        <div className="p-3.5 rounded-2xl bg-teal-950/80 border border-teal-500/30 text-xs text-teal-200 flex items-center justify-between">
-          <span>{message}</span>
-          <button onClick={() => setMessage('')} className="text-teal-400 font-bold">Dismiss</button>
-        </div>
-      )}
-
-      {/* Report Filter & Export Card */}
-      <div className="p-6 rounded-3xl glass-panel space-y-6">
-        <div className="border-b border-slate-800 pb-4">
-          <h2 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
-            <FileSpreadsheet className="w-4 h-4 text-teal-400" />
-            <span>Export Official Excel Spreadsheets (.xlsx)</span>
-          </h2>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Generates 5 multi-tab worksheets: Period-Wise Matrix, Daily Summary, Session Summary, Detailed Attendance Logs, and Student Totals
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
-          <div>
-            <label className="block text-slate-300 font-medium mb-1.5 flex items-center gap-1.5">
-              <Calendar className="w-3.5 h-3.5 text-teal-400" /> Start Date
-            </label>
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="w-full px-3 py-2.5 rounded-xl glass-input font-mono"
-            />
-          </div>
-
-          <div>
-            <label className="block text-slate-300 font-medium mb-1.5 flex items-center gap-1.5">
-              <Calendar className="w-3.5 h-3.5 text-teal-400" /> End Date
-            </label>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              className="w-full px-3 py-2.5 rounded-xl glass-input font-mono"
-            />
-          </div>
-
-          <div>
-            <label className="block text-slate-300 font-medium mb-1.5 flex items-center gap-1.5">
-              <Building2 className="w-3.5 h-3.5 text-teal-400" /> Assigned Classroom
-            </label>
-            <select
-              value={selectedClassroomId}
-              onChange={(e) => setSelectedClassroomId(e.target.value)}
-              className="w-full px-3 py-2.5 rounded-xl glass-input font-medium"
-            >
-              {classrooms.map((cr) => (
-                <option key={cr._id} value={cr._id}>
-                  {cr.classroomId}: {cr.name} ({cr.department})
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <div className="pt-2 flex items-center justify-end">
-          <button
-            onClick={handleExportExcel}
-            disabled={downloading}
-            className="px-6 py-3 rounded-2xl bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-600 hover:to-emerald-700 text-slate-950 font-bold text-xs shadow-xl shadow-teal-500/20 flex items-center gap-2 transition-all disabled:opacity-50"
-          >
-            <Download className="w-4 h-4" />
-            <span>{downloading ? 'Generating Report...' : 'Download Attendance Excel (.xlsx)'}</span>
-          </button>
         </div>
       </div>
 
       {/* Embedded Live Period-by-Period Classroom Matrix */}
-      {selectedClassroomId && (
-        <ClassroomPeriodMatrix
-          initialClassroomId={selectedClassroomId}
-          allowClassroomSwitch={true}
-          userRole="faculty"
-        />
-      )}
+      <ClassroomPeriodMatrix
+        allowClassroomSwitch={true}
+        userRole="faculty"
+      />
     </div>
   );
 };

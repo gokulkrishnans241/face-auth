@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import apiClient from '../../api/client';
-import { downloadExcelReport } from '../../utils/exportUtils';
+import { downloadExcelReport, downloadXmlReport } from '../../utils/exportUtils';
 import {
   Calendar,
   Building2,
@@ -9,6 +9,7 @@ import {
   XCircle,
   Clock,
   Download,
+  FileCode,
   RefreshCw,
   Search,
   Filter,
@@ -208,14 +209,13 @@ export const ClassroomPeriodMatrix = ({
         type: 'error',
         text: err.response?.data?.message || 'Error updating attendance.',
       });
-      // Re-fetch to synchronize in case of error
       fetchMatrix();
     } finally {
       setTogglingStudentId(null);
     }
   };
 
-  // 4. Download Excel Report
+  // 4. Download Excel Report (.xlsx)
   const handleDownloadExcel = async () => {
     setDownloading(true);
     try {
@@ -225,12 +225,28 @@ export const ClassroomPeriodMatrix = ({
         classroomId: selectedClassroomId,
         customFilename: `Class_${matrixData?.classroom?.classroomId || 'Summary'}_Periods_${date}.xlsx`,
       });
-      setMessage({ type: 'success', text: 'Excel report downloaded with 7-period matrix!' });
+      setMessage({ type: 'success', text: 'Excel report (.xlsx) downloaded successfully!' });
       setTimeout(() => setMessage({ type: '', text: '' }), 4000);
     } catch (err) {
       setMessage({ type: 'error', text: err.message || 'Excel download failed.' });
     } finally {
       setDownloading(false);
+    }
+  };
+
+  // 5. Download XML Spreadsheet (.xml)
+  const handleDownloadXml = () => {
+    if (!matrixData) return;
+    try {
+      downloadXmlReport({
+        matrixData,
+        date,
+        customFilename: `Class_${matrixData?.classroom?.classroomId || 'Summary'}_Periods_${date}.xml`,
+      });
+      setMessage({ type: 'success', text: 'XML Spreadsheet (.xml) downloaded successfully!' });
+      setTimeout(() => setMessage({ type: '', text: '' }), 4000);
+    } catch (err) {
+      setMessage({ type: 'error', text: 'XML download failed.' });
     }
   };
 
@@ -253,6 +269,36 @@ export const ClassroomPeriodMatrix = ({
 
   return (
     <div className="space-y-6">
+      {/* 7 Classes Quick Selector Navigation Bar */}
+      {allowClassroomSwitch && classrooms.length > 0 && (
+        <div className="p-3 rounded-2xl glass-panel flex items-center gap-2 overflow-x-auto">
+          <span className="text-[11px] font-bold text-slate-400 uppercase shrink-0 px-2 flex items-center gap-1">
+            <Building2 className="w-3.5 h-3.5 text-teal-400" /> Classrooms:
+          </span>
+          <div className="flex items-center gap-2 shrink-0">
+            {classrooms.map((cr, idx) => {
+              const isSelected = selectedClassroomId === cr._id;
+              return (
+                <button
+                  key={cr._id}
+                  onClick={() => setSelectedClassroomId(cr._id)}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 border ${
+                    isSelected
+                      ? 'bg-teal-500 text-slate-950 border-teal-400 shadow-md shadow-teal-500/20'
+                      : 'bg-slate-900/80 text-slate-300 hover:text-white border-slate-800 hover:border-slate-700'
+                  }`}
+                >
+                  <span>Class {idx + 1}</span>
+                  <span className={`text-[10px] font-mono px-1 rounded ${isSelected ? 'bg-teal-600 text-slate-950 font-bold' : 'bg-slate-800 text-slate-400'}`}>
+                    {cr.classroomId}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Top Filter & Control Panel */}
       <div className="p-5 sm:p-6 rounded-3xl glass-panel space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -260,19 +306,21 @@ export const ClassroomPeriodMatrix = ({
             <div className="flex items-center gap-2">
               <h2 className="text-lg sm:text-xl font-extrabold text-white font-outfit flex items-center gap-2">
                 <Sparkles className="w-5 h-5 text-teal-400" />
-                <span>Classroom Period-Wise Attendance Summary</span>
+                <span>
+                  {matrixData?.classroom ? `${matrixData.classroom.name} (${matrixData.classroom.classroomId})` : 'Classroom Summary'} • Period Matrix
+                </span>
               </h2>
               <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-teal-500/20 text-teal-300 border border-teal-500/30">
                 PERIODS 1 - 7
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-0.5">
-              Live period-by-period matrix • Click any student's period cell to immediately toggle Present / Absent
+              Period-by-period attendance matrix • Click any student's period box to instantly change status (Present / Absent)
             </p>
           </div>
 
           {/* Quick Actions */}
-          <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={fetchMatrix}
               disabled={loading}
@@ -282,38 +330,32 @@ export const ClassroomPeriodMatrix = ({
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
 
+            {/* Download XML Sheet */}
+            <button
+              onClick={handleDownloadXml}
+              disabled={!matrixData}
+              className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-teal-300 border border-teal-500/30 text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm"
+              title="Download Microsoft XML Spreadsheet format"
+            >
+              <FileCode className="w-3.5 h-3.5 text-teal-400" />
+              <span>Download XML Sheet</span>
+            </button>
+
+            {/* Download Excel (.xlsx) */}
             <button
               onClick={handleDownloadExcel}
               disabled={downloading || !matrixData}
               className="px-4 py-2 rounded-xl bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-600 hover:to-emerald-700 text-slate-950 font-bold text-xs shadow-lg shadow-teal-500/20 flex items-center gap-1.5 transition-all disabled:opacity-50"
+              title="Download Excel OpenXML workbook"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>{downloading ? 'Exporting...' : 'Download Period Excel (.xlsx)'}</span>
+              <span>{downloading ? 'Exporting...' : 'Download Excel (.xlsx)'}</span>
             </button>
           </div>
         </div>
 
-        {/* Classroom & Date Selectors */}
+        {/* Date & Classroom Details */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-2">
-          {allowClassroomSwitch && (
-            <div>
-              <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1 flex items-center gap-1.5">
-                <Building2 className="w-3.5 h-3.5 text-teal-400" /> Select Classroom (1 of 7)
-              </label>
-              <select
-                value={selectedClassroomId}
-                onChange={(e) => setSelectedClassroomId(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl glass-input text-xs font-medium"
-              >
-                {classrooms.map((cr) => (
-                  <option key={cr._id} value={cr._id}>
-                    {cr.classroomId}: {cr.name} ({cr.department} • Room {cr.roomNumber})
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
           <div>
             <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1 flex items-center gap-1.5">
               <Calendar className="w-3.5 h-3.5 text-teal-400" /> Attendance Date
@@ -326,22 +368,38 @@ export const ClassroomPeriodMatrix = ({
             />
           </div>
 
-          {/* Quick Stats Pill */}
           {matrixData && (
-            <div className="p-2.5 rounded-2xl bg-slate-900/60 border border-slate-800 flex items-center justify-between text-xs sm:col-span-2 lg:col-span-1">
-              <div>
-                <span className="text-slate-400 block text-[10px]">Total Enrolled:</span>
-                <span className="font-bold text-white font-mono text-sm">
-                  {matrixData.classroom?.totalStudents || 0} Students
-                </span>
+            <>
+              <div className="p-2.5 rounded-2xl bg-slate-900/60 border border-slate-800 flex items-center justify-between text-xs">
+                <div>
+                  <span className="text-slate-400 block text-[10px]">Academic Department:</span>
+                  <span className="font-bold text-white text-xs truncate block max-w-[180px]">
+                    {matrixData.classroom?.department}
+                  </span>
+                </div>
+                <div className="text-right font-mono">
+                  <span className="text-slate-400 block text-[10px]">Room Number:</span>
+                  <span className="font-bold text-teal-300 text-xs">
+                    Room {matrixData.classroom?.roomNumber}
+                  </span>
+                </div>
               </div>
-              <div className="text-right">
-                <span className="text-slate-400 block text-[10px]">Room Number:</span>
-                <span className="font-bold text-teal-300 font-mono text-xs">
-                  Room {matrixData.classroom?.roomNumber} ({matrixData.classroom?.department})
-                </span>
+
+              <div className="p-2.5 rounded-2xl bg-slate-900/60 border border-slate-800 flex items-center justify-between text-xs">
+                <div>
+                  <span className="text-slate-400 block text-[10px]">Total Enrolled Students:</span>
+                  <span className="font-bold text-white font-mono text-sm">
+                    {matrixData.classroom?.totalStudents || 0} Students
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="text-slate-400 block text-[10px]">Active Sessions:</span>
+                  <span className="font-bold text-emerald-400 font-mono text-xs">
+                    7 Periods (P1 - P7)
+                  </span>
+                </div>
               </div>
-            </div>
+            </>
           )}
         </div>
       </div>
