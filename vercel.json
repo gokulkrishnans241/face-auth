@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "https://smart-attendance-api.onrender.com/api/$1"
+      "destination": "https://smart-attendance-api-cxen.onrender.com/api/$1"
     },
     {
       "source": "/(.*)",
