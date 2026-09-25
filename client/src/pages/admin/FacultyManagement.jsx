@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import apiClient from '../../api/client';
 import Modal from '../../components/common/Modal';
 import CameraHUD, { playSuccessChime } from '../../components/face/CameraHUD';
