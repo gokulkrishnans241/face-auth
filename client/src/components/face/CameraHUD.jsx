@@ -17,6 +17,8 @@ import {
   AlertTriangle,
   RotateCcw,
   SwitchCamera,
+  Video,
+  ChevronDown,
 } from 'lucide-react';
 import { loadFaceModels, detectFaceWithQuality } from '../../services/faceApiService';
 
@@ -60,9 +62,25 @@ export const CameraHUD = ({
   const hiddenCanvasRef = useRef(document.createElement('canvas'));
   const fileInputRef = useRef(null);
   const isAnalyzingRef = useRef(false);
+  const streamRef = useRef(null);
+
+  // Device detection (Mobile vs Laptop/Desktop)
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const checkIsMobile = () => {
+      const uaCheck = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      const touchCheck = 'ontouchstart' in window && window.innerWidth < 1024;
+      setIsMobile(uaCheck || touchCheck);
+    };
+    checkIsMobile();
+    window.addEventListener('resize', checkIsMobile);
+    return () => window.removeEventListener('resize', checkIsMobile);
+  }, []);
 
   const [stream, setStream] = useState(null);
-  const [facingMode, setFacingMode] = useState('user'); // 'user' (front) | 'environment' (rear)
+  const [facingMode, setFacingMode] = useState('user'); // Mobile: 'user' (front) | 'environment' (rear)
+  const [availableDevices, setAvailableDevices] = useState([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState('');
   const [cameraStatus, setCameraStatus] = useState('initializing'); // 'initializing' | 'active' | 'denied' | 'error'
   const [modelStatus, setModelStatus] = useState('loading'); // 'loading' | 'ready' | 'error'
   const [errorMessage, setErrorMessage] = useState('');
@@ -74,6 +92,34 @@ export const CameraHUD = ({
   const [guidanceText, setGuidanceText] = useState('Align face in frame');
 
   const [initTimeoutTriggered, setInitTimeoutTriggered] = useState(false);
+
+  // Enumerate all available camera video devices
+  const updateDeviceList = useCallback(async () => {
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoInputs = devices.filter((d) => d.kind === 'videoinput');
+      setAvailableDevices(videoInputs);
+
+      // If no device is selected yet on desktop, select the first non-IR camera
+      if (!selectedDeviceId && videoInputs.length > 0) {
+        const nonIR = videoInputs.find(
+          (d) => !/ir|infrared|depth/i.test(d.label || '')
+        );
+        setSelectedDeviceId((nonIR || videoInputs[0]).deviceId);
+      }
+    } catch (e) {
+      console.warn('Could not enumerate video devices:', e);
+    }
+  }, [selectedDeviceId]);
+
+  useEffect(() => {
+    updateDeviceList();
+    navigator.mediaDevices?.addEventListener?.('devicechange', updateDeviceList);
+    return () => {
+      navigator.mediaDevices?.removeEventListener?.('devicechange', updateDeviceList);
+    };
+  }, [updateDeviceList]);
 
   // Pre-load Deep Face Recognition Models
   useEffect(() => {
@@ -98,6 +144,7 @@ export const CameraHUD = ({
       const video = videoElementRef.current;
       video.srcObject = stream;
       video.muted = true;
+      video.defaultMuted = true;
       video.playsInline = true;
       video.setAttribute('playsinline', 'true');
       video.setAttribute('webkit-playsinline', 'true');
@@ -110,9 +157,10 @@ export const CameraHUD = ({
   // Callback ref: Attaches stream to video node as soon as it mounts in DOM
   const setVideoRef = useCallback((node) => {
     videoElementRef.current = node;
-    if (node && stream) {
-      node.srcObject = stream;
+    if (node && streamRef.current) {
+      node.srcObject = streamRef.current;
       node.muted = true;
+      node.defaultMuted = true;
       node.playsInline = true;
       node.setAttribute('playsinline', 'true');
       node.setAttribute('webkit-playsinline', 'true');
@@ -120,100 +168,175 @@ export const CameraHUD = ({
         console.warn('Video playback promise warning:', err);
       });
     }
-  }, [stream]);
+  }, []);
 
-  // Start Camera with flexible constraints and dynamic facingMode
-  const startCamera = useCallback(async (modeToUse = facingMode) => {
-    setCameraStatus('initializing');
-    setInitTimeoutTriggered(false);
-    setErrorMessage('');
-
-    const timeoutTimer = setTimeout(() => {
-      setInitTimeoutTriggered(true);
-    }, 3500);
-
-    try {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error('Camera API not supported in this browser environment. Please use HTTPS or localhost.');
-      }
-
-      let mediaStream = null;
-
-      // Strategy 1: Ideal resolution + facingMode
-      try {
-        mediaStream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: modeToUse ? { ideal: modeToUse } : 'user',
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-          },
-          audio: false,
-        });
-      } catch (e1) {
-        console.warn('Strategy 1 getUserMedia failed, trying simple facingMode:', e1);
-        try {
-          mediaStream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: modeToUse || 'user' },
-            audio: false,
-          });
-        } catch (e2) {
-          console.warn('Strategy 2 getUserMedia failed, trying basic video:true:', e2);
-          mediaStream = await navigator.mediaDevices.getUserMedia({
-            video: true,
-            audio: false,
-          });
-        }
-      }
-
-      clearTimeout(timeoutTimer);
-
-      if (!mediaStream) {
-        throw new Error('Could not establish media stream with device camera.');
-      }
-
-      setStream(mediaStream);
-      setCameraStatus('active');
-      setInitTimeoutTriggered(false);
-
-      if (videoElementRef.current) {
-        const video = videoElementRef.current;
-        video.srcObject = mediaStream;
-        video.muted = true;
-        video.playsInline = true;
-        video.setAttribute('playsinline', 'true');
-        video.setAttribute('webkit-playsinline', 'true');
-        await video.play().catch((err) => {
-          console.warn('Play error:', err);
-        });
-      }
-    } catch (err) {
-      clearTimeout(timeoutTimer);
-      console.error('Camera access error:', err);
-      setCameraStatus(err.name === 'NotAllowedError' ? 'denied' : 'error');
-      setErrorMessage(
-        err.name === 'NotAllowedError'
-          ? 'Camera permission denied. Please allow camera access in your browser settings (look for camera icon in address bar).'
-          : err.name === 'NotReadableError'
-          ? 'Camera is currently locked by another application (e.g. Zoom, Teams, or another tab). Please close other camera programs and click Retry.'
-          : err.message || 'Unable to connect to camera capture stream.'
-      );
-    }
-  }, [facingMode]);
-
-  // Stop Camera
+  // Stop Camera & release all hardware tracks cleanly
   const stopCamera = useCallback(() => {
-    if (stream) {
-      stream.getTracks().forEach((track) => track.stop());
-      setStream(null);
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => {
+        try {
+          track.stop();
+        } catch (e) {
+          // ignore
+        }
+      });
+      streamRef.current = null;
     }
+    setStream(null);
     if (videoElementRef.current) {
       videoElementRef.current.srcObject = null;
     }
-  }, [stream]);
+  }, []);
+
+  // Start Camera with flexible, device-aware constraints (Laptop vs Mobile)
+  const startCamera = useCallback(
+    async (modeToUse = facingMode, deviceIdToUse = selectedDeviceId) => {
+      // 1. Release previous camera hardware locks first
+      stopCamera();
+
+      setCameraStatus('initializing');
+      setInitTimeoutTriggered(false);
+      setErrorMessage('');
+
+      const timeoutTimer = setTimeout(() => {
+        setInitTimeoutTriggered(true);
+      }, 3500);
+
+      try {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          throw new Error('Camera API not supported in this browser. Please access via HTTPS or localhost.');
+        }
+
+        let mediaStream = null;
+
+        if (isMobile) {
+          // ================= MOBILE CAMERA STRATEGY =================
+          // Tier 1: Ideal 720p with facingMode
+          try {
+            mediaStream = await navigator.mediaDevices.getUserMedia({
+              video: {
+                facingMode: modeToUse ? { ideal: modeToUse } : 'user',
+                width: { ideal: 1280 },
+                height: { ideal: 720 },
+              },
+              audio: false,
+            });
+          } catch (e1) {
+            console.warn('Mobile Tier 1 failed, trying simple facingMode:', e1);
+            try {
+              mediaStream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: modeToUse || 'user' },
+                audio: false,
+              });
+            } catch (e2) {
+              console.warn('Mobile Tier 2 failed, falling back to video:true:', e2);
+              mediaStream = await navigator.mediaDevices.getUserMedia({
+                video: true,
+                audio: false,
+              });
+            }
+          }
+        } else {
+          // ================= LAPTOP / DESKTOP CAMERA STRATEGY =================
+          // Note: Laptop webcams do NOT support facingMode. We use deviceId or direct resolution constraints!
+          // Tier 1: If specific deviceId selected, request with ideal 720p HD
+          if (deviceIdToUse) {
+            try {
+              mediaStream = await navigator.mediaDevices.getUserMedia({
+                video: {
+                  deviceId: { exact: deviceIdToUse },
+                  width: { ideal: 1280 },
+                  height: { ideal: 720 },
+                },
+                audio: false,
+              });
+            } catch (e1) {
+              console.warn('Laptop Tier 1 (exact deviceId) failed, trying ideal deviceId:', e1);
+              try {
+                mediaStream = await navigator.mediaDevices.getUserMedia({
+                  video: {
+                    deviceId: { ideal: deviceIdToUse },
+                  },
+                  audio: false,
+                });
+              } catch (e1b) {
+                console.warn('Laptop Tier 1b failed:', e1b);
+              }
+            }
+          }
+
+          // Tier 2: Standard Laptop 720p HD without facingMode
+          if (!mediaStream) {
+            try {
+              mediaStream = await navigator.mediaDevices.getUserMedia({
+                video: {
+                  width: { ideal: 1280 },
+                  height: { ideal: 720 },
+                },
+                audio: false,
+              });
+            } catch (e2) {
+              console.warn('Laptop Tier 2 failed, trying basic video:true:', e2);
+              try {
+                mediaStream = await navigator.mediaDevices.getUserMedia({
+                  video: true,
+                  audio: false,
+                });
+              } catch (e3) {
+                console.error('Laptop Tier 3 (video:true) failed:', e3);
+                throw e3;
+              }
+            }
+          }
+        }
+
+        clearTimeout(timeoutTimer);
+
+        if (!mediaStream) {
+          throw new Error('Could not establish media stream with device camera.');
+        }
+
+        streamRef.current = mediaStream;
+        setStream(mediaStream);
+        setCameraStatus('active');
+        setInitTimeoutTriggered(false);
+
+        // Refresh device list now that permissions are granted (labels are now populated!)
+        updateDeviceList();
+
+        if (videoElementRef.current) {
+          const video = videoElementRef.current;
+          video.srcObject = mediaStream;
+          video.muted = true;
+          video.defaultMuted = true;
+          video.playsInline = true;
+          video.setAttribute('playsinline', 'true');
+          video.setAttribute('webkit-playsinline', 'true');
+          await video.play().catch((err) => {
+            console.warn('Play error:', err);
+          });
+        }
+      } catch (err) {
+        clearTimeout(timeoutTimer);
+        console.error('Camera access error:', err);
+        setCameraStatus(err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError' ? 'denied' : 'error');
+        setErrorMessage(
+          err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError'
+            ? 'Camera permission denied. Please click the camera icon in your browser URL address bar and allow camera access.'
+            : err.name === 'NotReadableError' || err.name === 'TrackStartError'
+            ? 'Camera is currently locked by another application (e.g. Zoom, Teams, Skype, or another browser tab). Please close other camera programs and click Force Restart.'
+            : err.name === 'OverconstrainedError'
+            ? 'Requested camera resolution is not supported by your webcam hardware. Please click Force Restart to use standard resolution.'
+            : err.message || 'Unable to connect to camera capture stream.'
+        );
+      }
+    },
+    [facingMode, selectedDeviceId, isMobile, stopCamera, updateDeviceList]
+  );
 
   useEffect(() => {
     if (active) {
-      startCamera(facingMode);
+      startCamera(facingMode, selectedDeviceId);
     } else {
       stopCamera();
     }
@@ -226,8 +349,18 @@ export const CameraHUD = ({
   const handleRestartCamera = () => {
     stopCamera();
     setTimeout(() => {
-      startCamera(facingMode);
-    }, 300);
+      startCamera(facingMode, selectedDeviceId);
+    }, 250);
+  };
+
+  // Change Camera Device on Desktop/Laptop
+  const handleDeviceChange = (e) => {
+    const newDevId = e.target.value;
+    setSelectedDeviceId(newDevId);
+    stopCamera();
+    setTimeout(() => {
+      startCamera(facingMode, newDevId);
+    }, 250);
   };
 
   // Flip Camera Front / Back Handler for mobile devices
@@ -236,8 +369,8 @@ export const CameraHUD = ({
     setFacingMode(nextMode);
     stopCamera();
     setTimeout(() => {
-      startCamera(nextMode);
-    }, 300);
+      startCamera(nextMode, selectedDeviceId);
+    }, 250);
   };
 
   // Manual image upload fallback
@@ -457,7 +590,7 @@ export const CameraHUD = ({
           // Top Right
           ctx.beginPath();
           ctx.moveTo(x + width - cornerLen, y);
-          ctx.lineTo(x + width, y);
+          ctx.lineTo(x + width);
           ctx.lineTo(x + width, y + cornerLen);
           ctx.stroke();
 
@@ -495,7 +628,11 @@ export const CameraHUD = ({
             : result.guidance.toUpperCase();
 
           const badgeW = Math.max(190, width);
-          ctx.fillStyle = isVerified ? 'rgba(6, 78, 59, 0.95)' : result.isGoodQuality ? 'rgba(15, 23, 42, 0.92)' : 'rgba(120, 53, 15, 0.92)';
+          ctx.fillStyle = isVerified
+            ? 'rgba(6, 78, 59, 0.95)'
+            : result.isGoodQuality
+            ? 'rgba(15, 23, 42, 0.92)'
+            : 'rgba(120, 53, 15, 0.92)';
           ctx.fillRect(x, Math.max(10, y - 30), badgeW, 26);
           ctx.fillStyle = isVerified ? '#34d399' : result.isGoodQuality ? '#2dd4bf' : '#fbbf24';
           ctx.font = 'bold 11px system-ui, sans-serif';
@@ -526,8 +663,10 @@ export const CameraHUD = ({
     };
   }, [cameraStatus, modelStatus, scanning, matchFeedback, onFaceDetected]);
 
+  const mirrorVideo = isMobile ? facingMode === 'user' : true;
+
   return (
-    <div className="relative w-full max-w-xl mx-auto rounded-3xl overflow-hidden bg-slate-950 border border-slate-800 shadow-2xl">
+    <div className="relative w-full max-w-2xl mx-auto rounded-3xl overflow-hidden bg-slate-950 border border-slate-800 shadow-2xl">
       {/* Hidden file input for photo upload fallback */}
       <input
         type="file"
@@ -536,6 +675,37 @@ export const CameraHUD = ({
         onChange={handleFileUpload}
         className="hidden"
       />
+
+      {/* Top Header Bar for Desktop / Laptop: Camera Device Selector & Stream Stats */}
+      {!isMobile && availableDevices.length > 0 && (
+        <div className="px-4 py-2 bg-slate-900/90 border-b border-slate-800 flex items-center justify-between text-xs">
+          <div className="flex items-center gap-2">
+            <Video className="w-3.5 h-3.5 text-teal-400" />
+            <span className="text-[11px] font-semibold text-slate-300">Camera Source:</span>
+            <select
+              value={selectedDeviceId}
+              onChange={handleDeviceChange}
+              className="bg-slate-950 border border-slate-700 text-teal-300 text-[11px] font-medium rounded-lg px-2 py-1 max-w-[220px] truncate focus:ring-1 focus:ring-teal-500 focus:outline-none"
+            >
+              {availableDevices.map((d, i) => (
+                <option key={d.deviceId || i} value={d.deviceId}>
+                  {d.label || `Camera ${i + 1} (${d.deviceId.slice(0, 8)}...)`}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-center gap-2 text-[10px] font-mono text-slate-400">
+            <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+              {videoInfo}
+            </span>
+            <span className="flex items-center gap-1 text-emerald-400">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              HD STREAM
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Video Viewport */}
       <div className="relative aspect-[4/3] w-full bg-black flex items-center justify-center overflow-hidden">
@@ -546,7 +716,7 @@ export const CameraHUD = ({
           playsInline
           muted
           style={{
-            transform: facingMode === 'user' ? 'scaleX(-1)' : 'none',
+            transform: mirrorVideo ? 'scaleX(-1)' : 'none',
             minHeight: '100%',
             minWidth: '100%',
           }}
@@ -556,7 +726,7 @@ export const CameraHUD = ({
         {/* Canvas Landmark Overlay */}
         <canvas
           ref={canvasRef}
-          style={{ transform: facingMode === 'user' ? 'scaleX(-1)' : 'none' }}
+          style={{ transform: mirrorVideo ? 'scaleX(-1)' : 'none' }}
           className="absolute inset-0 w-full h-full object-cover pointer-events-none"
         />
 
@@ -612,14 +782,16 @@ export const CameraHUD = ({
           <div className="absolute inset-0 bg-slate-950/95 flex flex-col items-center justify-center p-6 text-center space-y-3 z-20">
             <RefreshCw className="w-8 h-8 text-teal-400 animate-spin" />
             <div>
-              <h4 className="text-sm font-bold text-white font-outfit">Initializing Optical Camera...</h4>
-              <p className="text-xs text-slate-400 mt-1">Connecting to video capture stream</p>
+              <h4 className="text-sm font-bold text-white font-outfit">
+                {isMobile ? 'Connecting Mobile Camera...' : 'Connecting Laptop Camera...'}
+              </h4>
+              <p className="text-xs text-slate-400 mt-1">Establishing high-resolution optical video stream</p>
             </div>
 
             {initTimeoutTriggered && (
               <div className="pt-2 space-y-2.5 max-w-xs animate-fadeIn border-t border-slate-800/80">
                 <p className="text-[11px] text-amber-300">
-                  Waiting for camera response. Please ensure you clicked <strong>"Allow"</strong> on your browser permission prompt.
+                  Waiting for camera response. Please ensure camera permissions are allowed in your browser settings.
                 </p>
                 <div className="flex flex-wrap items-center justify-center gap-2">
                   <button
@@ -627,7 +799,7 @@ export const CameraHUD = ({
                     onClick={handleRestartCamera}
                     className="px-3.5 py-1.5 rounded-xl bg-teal-500 hover:bg-teal-600 text-slate-950 text-xs font-bold transition-all shadow-md shadow-teal-500/20"
                   >
-                    Force Start Camera
+                    Force Restart Camera
                   </button>
                   <button
                     type="button"
@@ -652,7 +824,7 @@ export const CameraHUD = ({
               <p className="text-xs text-slate-400 mt-1 max-w-xs">{errorMessage}</p>
             </div>
             <button
-              onClick={startCamera}
+              onClick={() => startCamera(facingMode, selectedDeviceId)}
               className="px-4 py-2 rounded-xl bg-teal-500 hover:bg-teal-600 text-slate-950 text-xs font-bold transition-colors"
             >
               Retry Camera Permission
@@ -669,10 +841,10 @@ export const CameraHUD = ({
             </div>
             <div className="flex gap-2">
               <button
-                onClick={startCamera}
+                onClick={handleRestartCamera}
                 className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold"
               >
-                Retry
+                Force Restart
               </button>
               <button
                 onClick={() => fileInputRef.current?.click()}
@@ -686,7 +858,7 @@ export const CameraHUD = ({
       </div>
 
       {/* Dynamic HUD Status Footer */}
-      <div className="p-4 bg-slate-900/95 border-t border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+      <div className="p-3.5 sm:p-4 bg-slate-900/95 border-t border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
         <div className="flex items-center gap-3">
           {shutterCovered ? (
             <div className="p-2 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/30">
@@ -707,7 +879,7 @@ export const CameraHUD = ({
           )}
 
           <div>
-            <div className="font-semibold text-white flex items-center gap-2">
+            <div className="font-semibold text-white flex items-center gap-2 flex-wrap">
               <span>
                 {shutterCovered
                   ? 'Camera Shutter Closed'
@@ -721,7 +893,7 @@ export const CameraHUD = ({
                 </span>
               )}
             </div>
-            <div className="text-[11px] text-slate-400">
+            <div className="text-[11px] text-slate-400 truncate max-w-[280px] sm:max-w-md">
               {shutterCovered
                 ? 'Open camera shutter or remove lens cover'
                 : multipleFacesDetected
@@ -732,22 +904,24 @@ export const CameraHUD = ({
         </div>
 
         <div className="flex items-center gap-2 self-end sm:self-auto flex-wrap">
-          {/* Flip Camera (Front / Rear for Mobile) */}
-          <button
-            type="button"
-            onClick={handleFlipCamera}
-            className="p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-teal-300 border border-slate-700 transition-colors flex items-center gap-1 text-[11px] font-semibold"
-            title="Flip Camera (Front / Rear)"
-          >
-            <SwitchCamera className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">{facingMode === 'user' ? 'Front' : 'Rear'}</span>
-          </button>
+          {/* Flip Camera (Front / Rear) - ONLY on Mobile devices */}
+          {isMobile && (
+            <button
+              type="button"
+              onClick={handleFlipCamera}
+              className="px-3 py-1.5 rounded-xl bg-teal-500/20 hover:bg-teal-500/30 text-teal-300 border border-teal-500/40 transition-colors flex items-center gap-1.5 text-xs font-bold"
+              title="Flip Camera (Front / Rear)"
+            >
+              <SwitchCamera className="w-3.5 h-3.5" />
+              <span>{facingMode === 'user' ? 'Front Cam' : 'Rear Cam'}</span>
+            </button>
+          )}
 
           {/* Camera Restart Button */}
           <button
             type="button"
             onClick={handleRestartCamera}
-            className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors"
+            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors"
             title="Restart Camera"
           >
             <RotateCcw className="w-3.5 h-3.5" />
@@ -757,7 +931,7 @@ export const CameraHUD = ({
           <button
             type="button"
             onClick={handleManualCapture}
-            className={`px-3 py-1.5 rounded-xl border text-[11px] font-bold transition-all flex items-center gap-1.5 ${
+            className={`px-3.5 py-1.5 rounded-xl border text-xs font-bold transition-all flex items-center gap-1.5 ${
               humanPresent
                 ? 'bg-teal-500 hover:bg-teal-600 text-slate-950 border-teal-400 shadow-md shadow-teal-500/20'
                 : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
@@ -772,7 +946,7 @@ export const CameraHUD = ({
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors"
+            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors"
             title="Upload photo fallback"
           >
             <Upload className="w-3.5 h-3.5" />
