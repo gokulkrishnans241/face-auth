@@ -60,9 +60,10 @@ export const LiveAttendanceScanner = ({
     setIsProcessing(true);
 
     try {
+      const targetClassroomId = classroom?._id || classroom || session?.classroomId?._id || session?.classroomId;
       const res = await apiClient.post('/attendance/mark-face', {
         sessionId: session._id,
-        classroomId: classroom._id,
+        classroomId: targetClassroomId,
         facialEmbedding: embedding,
         livenessVerified: true,
       });
