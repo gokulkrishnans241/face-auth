@@ -43,8 +43,8 @@ export const enrollFace = async (req, res, next) => {
       const distance = calculateEuclideanDistance(facialEmbedding, existing.facialEmbedding);
       const similarity = calculateCosineSimilarity(facialEmbedding, existing.facialEmbedding);
 
-      // If faces are too similar (distance < 0.38 or similarity > 0.88), reject as duplicate
-      if (distance < 0.38 || similarity > 0.88) {
+      // If faces are the SAME person (distance <= 0.44 or similarity >= 0.85), reject as duplicate
+      if (distance <= 0.44 || similarity >= 0.85) {
         return res.status(409).json({
           success: false,
           duplicateDetected: true,

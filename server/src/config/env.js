@@ -9,5 +9,5 @@ export const config = {
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '24h',
   clientUrl: process.env.CLIENT_URL || 'http://localhost:3000',
   timezone: process.env.TIMEZONE || 'Asia/Kolkata',
-  faceMatchThreshold: parseFloat(process.env.FACE_MATCH_THRESHOLD || '0.26'), // Strict Euclidean distance threshold (<= 0.26)
+  faceMatchThreshold: parseFloat(process.env.FACE_MATCH_THRESHOLD || '0.44'), // Standard ResNet-34 Face-API threshold (<= 0.44)
 };

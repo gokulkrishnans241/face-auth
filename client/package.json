@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@vladmandic/face-api": "^1.7.15",
     "axios": "^1.7.2",
     "canvas-confetti": "^1.9.3",
     "clsx": "^2.1.1",
