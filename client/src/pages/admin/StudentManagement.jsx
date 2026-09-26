@@ -196,6 +196,21 @@ export const StudentManagement = () => {
     }
   };
 
+  const handleResetAllBiometrics = async () => {
+    if (!window.confirm('Wipe ALL stored facial biometric profiles across all students? This will allow every student to enroll their genuine face cleanly.')) {
+      return;
+    }
+    try {
+      const res = await apiClient.delete('/face/reset-all');
+      if (res.data.success) {
+        setMessage('All biometric facial profiles have been wiped. Students can now be re-enrolled cleanly.');
+        fetchData();
+      }
+    } catch (err) {
+      setMessage(err.response?.data?.message || 'Error purging biometric profiles.');
+    }
+  };
+
   const handleDeleteStudent = async (student) => {
     if (!window.confirm(`Delete student account ${student.name} (${student.userId})?`)) {
       return;
@@ -262,6 +277,16 @@ export const StudentManagement = () => {
               className="pl-9 pr-3 py-1.5 rounded-xl glass-input text-xs w-48 sm:w-56"
             />
           </div>
+
+          <button
+            type="button"
+            onClick={handleResetAllBiometrics}
+            className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 border border-slate-800 hover:border-rose-500/30 text-xs font-semibold transition-all flex items-center gap-1.5"
+            title="Purge all stored facial profiles to start fresh"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Reset All Biometrics</span>
+          </button>
 
           <button
             onClick={handleOpenAdd}

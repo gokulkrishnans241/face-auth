@@ -135,7 +135,7 @@ export const getFaceStatus = async (req, res, next) => {
 
 /**
  * @route DELETE /api/face/reset/:userId?
- * @desc Revoke consent and delete biometric embedding data (Student or Admin)
+ * @desc Revoke consent and delete biometric embedding data for single user
  */
 export const resetFaceProfile = async (req, res, next) => {
   try {
@@ -162,3 +162,26 @@ export const resetFaceProfile = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * @route DELETE /api/face/reset-all
+ * @desc Purge all stored biometric embeddings and reset enrollment status (Admin only)
+ */
+export const resetAllFaceProfiles = async (req, res, next) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Admin authorization required.' });
+    }
+
+    await FaceProfile.deleteMany({});
+    await User.updateMany({ role: 'student' }, { biometricEnrolled: false });
+
+    return res.status(200).json({
+      success: true,
+      message: 'All stored biometric facial profiles have been purged. All students can now enroll their real faces cleanly.',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+

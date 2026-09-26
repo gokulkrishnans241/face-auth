@@ -9,5 +9,5 @@ export const config = {
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '24h',
   clientUrl: process.env.CLIENT_URL || 'http://localhost:3000',
   timezone: process.env.TIMEZONE || 'Asia/Kolkata',
-  faceMatchThreshold: parseFloat(process.env.FACE_MATCH_THRESHOLD || '0.32'), // Euclidean distance threshold (strict <= 0.32)
+  faceMatchThreshold: parseFloat(process.env.FACE_MATCH_THRESHOLD || '0.26'), // Strict Euclidean distance threshold (<= 0.26)
 };
