@@ -16,6 +16,7 @@ import {
   Users,
   AlertTriangle,
   RotateCcw,
+  SwitchCamera,
 } from 'lucide-react';
 import { loadFaceModels, detectFaceWithQuality } from '../../services/faceApiService';
 
@@ -61,6 +62,7 @@ export const CameraHUD = ({
   const isAnalyzingRef = useRef(false);
 
   const [stream, setStream] = useState(null);
+  const [facingMode, setFacingMode] = useState('user'); // 'user' (front) | 'environment' (rear)
   const [cameraStatus, setCameraStatus] = useState('initializing'); // 'initializing' | 'active' | 'denied' | 'error'
   const [modelStatus, setModelStatus] = useState('loading'); // 'loading' | 'ready' | 'error'
   const [errorMessage, setErrorMessage] = useState('');
@@ -101,8 +103,8 @@ export const CameraHUD = ({
     }
   }, [stream]);
 
-  // Start Camera with flexible constraints
-  const startCamera = useCallback(async () => {
+  // Start Camera with flexible constraints and dynamic facingMode
+  const startCamera = useCallback(async (modeToUse = facingMode) => {
     setCameraStatus('initializing');
     setErrorMessage('');
 
@@ -115,16 +117,24 @@ export const CameraHUD = ({
       try {
         mediaStream = await navigator.mediaDevices.getUserMedia({
           video: {
+            facingMode: modeToUse,
             width: { ideal: 1280, min: 480 },
             height: { ideal: 720, min: 360 },
           },
           audio: false,
         });
       } catch (e) {
-        mediaStream = await navigator.mediaDevices.getUserMedia({
-          video: true,
-          audio: false,
-        });
+        try {
+          mediaStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: modeToUse },
+            audio: false,
+          });
+        } catch (e2) {
+          mediaStream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false,
+          });
+        }
       }
 
       setStream(mediaStream);
@@ -147,7 +157,7 @@ export const CameraHUD = ({
           : err.message || 'Unable to access camera.'
       );
     }
-  }, []);
+  }, [facingMode]);
 
   // Stop Camera
   const stopCamera = useCallback(() => {
@@ -162,7 +172,7 @@ export const CameraHUD = ({
 
   useEffect(() => {
     if (active) {
-      startCamera();
+      startCamera(facingMode);
     } else {
       stopCamera();
     }
@@ -175,7 +185,17 @@ export const CameraHUD = ({
   const handleRestartCamera = () => {
     stopCamera();
     setTimeout(() => {
-      startCamera();
+      startCamera(facingMode);
+    }, 300);
+  };
+
+  // Flip Camera Front / Back Handler for mobile devices
+  const handleFlipCamera = () => {
+    const nextMode = facingMode === 'user' ? 'environment' : 'user';
+    setFacingMode(nextMode);
+    stopCamera();
+    setTimeout(() => {
+      startCamera(nextMode);
     }, 300);
   };
 
@@ -485,7 +505,7 @@ export const CameraHUD = ({
           playsInline
           muted
           style={{
-            transform: 'scaleX(-1)',
+            transform: facingMode === 'user' ? 'scaleX(-1)' : 'none',
             minHeight: '100%',
             minWidth: '100%',
           }}
@@ -495,7 +515,7 @@ export const CameraHUD = ({
         {/* Canvas Landmark Overlay */}
         <canvas
           ref={canvasRef}
-          style={{ transform: 'scaleX(-1)' }}
+          style={{ transform: facingMode === 'user' ? 'scaleX(-1)' : 'none' }}
           className="absolute inset-0 w-full h-full object-cover pointer-events-none"
         />
 
@@ -646,7 +666,18 @@ export const CameraHUD = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-2 self-end sm:self-auto">
+        <div className="flex items-center gap-2 self-end sm:self-auto flex-wrap">
+          {/* Flip Camera (Front / Rear for Mobile) */}
+          <button
+            type="button"
+            onClick={handleFlipCamera}
+            className="p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-teal-300 border border-slate-700 transition-colors flex items-center gap-1 text-[11px] font-semibold"
+            title="Flip Camera (Front / Rear)"
+          >
+            <SwitchCamera className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">{facingMode === 'user' ? 'Front' : 'Rear'}</span>
+          </button>
+
           {/* Camera Restart Button */}
           <button
             type="button"

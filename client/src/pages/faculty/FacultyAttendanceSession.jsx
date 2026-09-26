@@ -123,6 +123,25 @@ export const FacultyAttendanceSession = () => {
     }
   };
 
+  // Quick shortcut to set timings based on current device clock
+  const handleSetCurrentTime = () => {
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const start = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+
+    // +1 hour for session end
+    const endObj = new Date(now.getTime() + 60 * 60 * 1000);
+    const end = `${pad(endObj.getHours())}:${pad(endObj.getMinutes())}`;
+
+    // +20 minutes for attendance deadline
+    const deadObj = new Date(now.getTime() + 20 * 60 * 1000);
+    const dead = `${pad(deadObj.getHours())}:${pad(deadObj.getMinutes())}`;
+
+    setStartTime(start);
+    setEndTime(end);
+    setAttendanceDeadline(dead);
+  };
+
   // Check if attendance is already recorded and stored for the currently selected period
   const storedPeriodSession = existingSessionsForDay.find(
     (s) => s.sessionNumber === selectedPeriod
@@ -151,8 +170,16 @@ export const FacultyAttendanceSession = () => {
       const existingRes = await apiClient.get(`/sessions?date=${today}&classroomId=${selectedClassroomId}`);
       const match = existingRes.data.sessions?.find((s) => s.sessionNumber === selectedPeriod);
 
+      const timePayload = {
+        startTime,
+        endTime,
+        attendanceDeadline,
+        subjectName,
+        sessionName: `Period ${selectedPeriod}: ${subjectName}`,
+      };
+
       if (match) {
-        const startRes = await apiClient.post(`/sessions/${match._id}/start`);
+        const startRes = await apiClient.post(`/sessions/${match._id}/start`, timePayload);
         session = startRes.data.session;
       } else {
         await apiClient.post('/sessions/generate-daily', {
@@ -163,7 +190,7 @@ export const FacultyAttendanceSession = () => {
         const freshRes = await apiClient.get(`/sessions?date=${today}&classroomId=${selectedClassroomId}`);
         const freshMatch = freshRes.data.sessions?.find((s) => s.sessionNumber === selectedPeriod);
         if (freshMatch) {
-          const startRes = await apiClient.post(`/sessions/${freshMatch._id}/start`);
+          const startRes = await apiClient.post(`/sessions/${freshMatch._id}/start`, timePayload);
           session = startRes.data.session;
         }
       }
@@ -345,14 +372,26 @@ export const FacultyAttendanceSession = () => {
               />
             </div>
 
-            {/* 3. Timings / Period Selection */}
-            <div>
-              <label className="block text-slate-300 font-semibold mb-1.5 flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5 text-teal-400" />
-                <span>3. Timetable Period & Class Timings</span>
-              </label>
+            {/* 3. Timings / Period Selection with Manual Time Entry */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-slate-300 font-semibold flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-teal-400" />
+                  <span>3. Period & Session Timings (Preset or Manual Entry)</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={handleSetCurrentTime}
+                  className="px-2.5 py-1 rounded-lg bg-teal-500/10 hover:bg-teal-500/20 text-teal-300 border border-teal-500/30 text-[10px] font-bold flex items-center gap-1 transition-all"
+                  title="Auto-fill with current device time"
+                >
+                  <Sparkles className="w-3 h-3" />
+                  <span>Set To Current Time (Now)</span>
+                </button>
+              </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+              {/* Period Quick Presets */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {standardPeriods.map((p) => (
                   <button
                     key={p.num}
@@ -360,43 +399,60 @@ export const FacultyAttendanceSession = () => {
                     onClick={() => handlePeriodChange(p.num)}
                     className={`p-2.5 rounded-xl border text-center transition-all ${
                       selectedPeriod === p.num
-                        ? 'bg-teal-500/20 text-teal-300 border-teal-500/50 shadow-md font-bold'
+                        ? 'bg-teal-500/20 text-teal-300 border-teal-500/50 shadow-md font-bold scale-[1.02]'
                         : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
                     }`}
                   >
                     <div className="text-xs font-bold font-mono">Period {p.num}</div>
-                    <div className="text-[10px] text-slate-400 font-mono mt-0.5">{p.start}-{p.end}</div>
+                    <div className="text-[10px] text-slate-400 font-mono mt-0.5">{p.start} - {p.end}</div>
                   </button>
                 ))}
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <span className="block text-[11px] text-slate-400 mb-1">Start Time:</span>
-                  <input
-                    type="time"
-                    value={startTime}
-                    onChange={(e) => setStartTime(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl glass-input text-xs font-mono"
-                  />
+              {/* Manual Time Input Fields */}
+              <div className="p-3 rounded-2xl bg-slate-900/60 border border-slate-800/80 space-y-2 mt-2">
+                <div className="flex items-center justify-between text-[11px] text-slate-400">
+                  <span className="font-semibold text-slate-300">Manual Time Controls:</span>
+                  <span className="text-[10px] text-teal-400 font-mono">Edit values to set custom session time</span>
                 </div>
-                <div>
-                  <span className="block text-[11px] text-slate-400 mb-1">End Time:</span>
-                  <input
-                    type="time"
-                    value={endTime}
-                    onChange={(e) => setEndTime(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl glass-input text-xs font-mono"
-                  />
-                </div>
-                <div>
-                  <span className="block text-[11px] text-slate-400 mb-1">Deadline:</span>
-                  <input
-                    type="time"
-                    value={attendanceDeadline}
-                    onChange={(e) => setAttendanceDeadline(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl glass-input text-xs font-mono"
-                  />
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div>
+                    <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">
+                      Start Time
+                    </label>
+                    <input
+                      type="time"
+                      value={startTime}
+                      onChange={(e) => setStartTime(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl glass-input text-xs font-mono font-bold"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">
+                      End Time
+                    </label>
+                    <input
+                      type="time"
+                      value={endTime}
+                      onChange={(e) => setEndTime(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl glass-input text-xs font-mono font-bold"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">
+                      Attendance Deadline
+                    </label>
+                    <input
+                      type="time"
+                      value={attendanceDeadline}
+                      onChange={(e) => setAttendanceDeadline(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl glass-input text-xs font-mono font-bold"
+                      required
+                    />
+                  </div>
                 </div>
               </div>
             </div>

@@ -179,21 +179,31 @@ export const generateDailySessions = async (req, res, next) => {
 
 /**
  * @route POST /api/sessions/:id/start
- * @desc Start an attendance session (opens camera/scanning)
+ * @desc Start an attendance session (opens camera/scanning) with optional manual time override
  */
 export const startSession = async (req, res, next) => {
   try {
     const { id } = req.params;
+    const { startTime, endTime, attendanceDeadline, subjectName, sessionName } = req.body || {};
     const session = await AttendanceSession.findById(id);
 
     if (!session) {
       return res.status(404).json({ success: false, message: 'Session not found.' });
     }
 
-    // Role check: Admin or assigned faculty
-    if (req.user.role === 'faculty' && session.assignedFaculty.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ success: false, message: 'You are not assigned to this session.' });
+    // Role check: Admin or assigned faculty (or dynamically assign faculty starting the session)
+    if (req.user.role === 'faculty') {
+      if (!session.assignedFaculty || session.assignedFaculty.toString() !== req.user._id.toString()) {
+        session.assignedFaculty = req.user._id;
+      }
     }
+
+    // Apply manual time / subject customizations if submitted by faculty
+    if (startTime) session.startTime = startTime;
+    if (endTime) session.endTime = endTime;
+    if (attendanceDeadline) session.attendanceDeadline = attendanceDeadline;
+    if (subjectName) session.subjectName = subjectName;
+    if (sessionName) session.sessionName = sessionName;
 
     session.status = 'active';
     session.openedAt = new Date();

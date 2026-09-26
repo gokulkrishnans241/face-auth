@@ -14,6 +14,7 @@ import {
   Sparkles,
   ArrowUpRight,
   Filter,
+  ScanFace,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { Link } from 'react-router-dom';
