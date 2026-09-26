@@ -73,6 +73,8 @@ export const CameraHUD = ({
   const [personConfidence, setPersonConfidence] = useState(0);
   const [guidanceText, setGuidanceText] = useState('Align face in frame');
 
+  const [initTimeoutTriggered, setInitTimeoutTriggered] = useState(false);
+
   // Pre-load Deep Face Recognition Models
   useEffect(() => {
     let isMounted = true;
@@ -90,6 +92,21 @@ export const CameraHUD = ({
     };
   }, []);
 
+  // Ensure stream is attached to video node whenever either changes
+  useEffect(() => {
+    if (videoElementRef.current && stream) {
+      const video = videoElementRef.current;
+      video.srcObject = stream;
+      video.muted = true;
+      video.playsInline = true;
+      video.setAttribute('playsinline', 'true');
+      video.setAttribute('webkit-playsinline', 'true');
+      video.play().catch((err) => {
+        console.warn('Video playback autoplay warning:', err);
+      });
+    }
+  }, [stream]);
+
   // Callback ref: Attaches stream to video node as soon as it mounts in DOM
   const setVideoRef = useCallback((node) => {
     videoElementRef.current = node;
@@ -97,8 +114,10 @@ export const CameraHUD = ({
       node.srcObject = stream;
       node.muted = true;
       node.playsInline = true;
+      node.setAttribute('playsinline', 'true');
+      node.setAttribute('webkit-playsinline', 'true');
       node.play().catch((err) => {
-        console.warn('Video playback promise error:', err);
+        console.warn('Video playback promise warning:', err);
       });
     }
   }, [stream]);
@@ -106,30 +125,39 @@ export const CameraHUD = ({
   // Start Camera with flexible constraints and dynamic facingMode
   const startCamera = useCallback(async (modeToUse = facingMode) => {
     setCameraStatus('initializing');
+    setInitTimeoutTriggered(false);
     setErrorMessage('');
+
+    const timeoutTimer = setTimeout(() => {
+      setInitTimeoutTriggered(true);
+    }, 3500);
 
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error('Camera API not supported in this browser. Please use HTTPS or localhost.');
+        throw new Error('Camera API not supported in this browser environment. Please use HTTPS or localhost.');
       }
 
-      let mediaStream;
+      let mediaStream = null;
+
+      // Strategy 1: Ideal resolution + facingMode
       try {
         mediaStream = await navigator.mediaDevices.getUserMedia({
           video: {
-            facingMode: modeToUse,
-            width: { ideal: 1280, min: 480 },
-            height: { ideal: 720, min: 360 },
+            facingMode: modeToUse ? { ideal: modeToUse } : 'user',
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
           },
           audio: false,
         });
-      } catch (e) {
+      } catch (e1) {
+        console.warn('Strategy 1 getUserMedia failed, trying simple facingMode:', e1);
         try {
           mediaStream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: modeToUse },
+            video: { facingMode: modeToUse || 'user' },
             audio: false,
           });
         } catch (e2) {
+          console.warn('Strategy 2 getUserMedia failed, trying basic video:true:', e2);
           mediaStream = await navigator.mediaDevices.getUserMedia({
             video: true,
             audio: false,
@@ -137,24 +165,37 @@ export const CameraHUD = ({
         }
       }
 
+      clearTimeout(timeoutTimer);
+
+      if (!mediaStream) {
+        throw new Error('Could not establish media stream with device camera.');
+      }
+
       setStream(mediaStream);
       setCameraStatus('active');
+      setInitTimeoutTriggered(false);
 
       if (videoElementRef.current) {
-        videoElementRef.current.srcObject = mediaStream;
-        videoElementRef.current.muted = true;
-        videoElementRef.current.playsInline = true;
-        await videoElementRef.current.play().catch((err) => {
+        const video = videoElementRef.current;
+        video.srcObject = mediaStream;
+        video.muted = true;
+        video.playsInline = true;
+        video.setAttribute('playsinline', 'true');
+        video.setAttribute('webkit-playsinline', 'true');
+        await video.play().catch((err) => {
           console.warn('Play error:', err);
         });
       }
     } catch (err) {
+      clearTimeout(timeoutTimer);
       console.error('Camera access error:', err);
       setCameraStatus(err.name === 'NotAllowedError' ? 'denied' : 'error');
       setErrorMessage(
         err.name === 'NotAllowedError'
-          ? 'Camera permission denied. Please allow camera permissions in your browser address bar settings.'
-          : err.message || 'Unable to access camera.'
+          ? 'Camera permission denied. Please allow camera access in your browser settings (look for camera icon in address bar).'
+          : err.name === 'NotReadableError'
+          ? 'Camera is currently locked by another application (e.g. Zoom, Teams, or another tab). Please close other camera programs and click Retry.'
+          : err.message || 'Unable to connect to camera capture stream.'
       );
     }
   }, [facingMode]);
@@ -568,12 +609,36 @@ export const CameraHUD = ({
         )}
 
         {cameraStatus === 'initializing' && (
-          <div className="absolute inset-0 bg-slate-950/90 flex flex-col items-center justify-center p-6 text-center space-y-3">
+          <div className="absolute inset-0 bg-slate-950/95 flex flex-col items-center justify-center p-6 text-center space-y-3 z-20">
             <RefreshCw className="w-8 h-8 text-teal-400 animate-spin" />
             <div>
-              <h4 className="text-sm font-bold text-white">Initializing Optical Camera...</h4>
+              <h4 className="text-sm font-bold text-white font-outfit">Initializing Optical Camera...</h4>
               <p className="text-xs text-slate-400 mt-1">Connecting to video capture stream</p>
             </div>
+
+            {initTimeoutTriggered && (
+              <div className="pt-2 space-y-2.5 max-w-xs animate-fadeIn border-t border-slate-800/80">
+                <p className="text-[11px] text-amber-300">
+                  Waiting for camera response. Please ensure you clicked <strong>"Allow"</strong> on your browser permission prompt.
+                </p>
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleRestartCamera}
+                    className="px-3.5 py-1.5 rounded-xl bg-teal-500 hover:bg-teal-600 text-slate-950 text-xs font-bold transition-all shadow-md shadow-teal-500/20"
+                  >
+                    Force Start Camera
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700"
+                  >
+                    Upload Photo
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
