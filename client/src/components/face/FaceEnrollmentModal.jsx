@@ -30,8 +30,8 @@ export const FaceEnrollmentModal = ({ isOpen, onClose, user, onEnrollmentComplet
 
   const handleSampleCaptured = ({ embedding, brightness }) => {
     const now = Date.now();
-    // Space samples by at least 700ms so they represent distinct frames
-    if (now - lastCaptureTimeRef.current < 700 || submitting) {
+    // Space samples by at least 450ms so they represent distinct frames
+    if (now - lastCaptureTimeRef.current < 450 || submitting) {
       return;
     }
     if (!embedding || !Array.isArray(embedding) || embedding.length < 16) {
@@ -42,6 +42,7 @@ export const FaceEnrollmentModal = ({ isOpen, onClose, user, onEnrollmentComplet
     collectedSamplesRef.current.push(embedding);
     const count = collectedSamplesRef.current.length;
     setSamplesCount(count);
+    playSuccessChime();
 
     if (count >= 3) {
       // Average the 3 samples into a master biometric descriptor

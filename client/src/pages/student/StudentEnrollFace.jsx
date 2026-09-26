@@ -37,13 +37,14 @@ export const StudentEnrollFace = () => {
 
   const handleSampleCaptured = async ({ embedding, personConfidence }) => {
     const now = Date.now();
-    if (now - lastCaptureRef.current < 750 || submitting) return;
+    if (now - lastCaptureRef.current < 450 || submitting) return;
     if (!embedding || !Array.isArray(embedding) || embedding.length < 16) return;
 
     lastCaptureRef.current = now;
     samplesRef.current.push(embedding);
     const count = samplesRef.current.length;
     setSamplesCount(count);
+    playSuccessChime();
 
     if (count >= 3) {
       setSubmitting(true);

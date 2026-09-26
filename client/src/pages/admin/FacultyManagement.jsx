@@ -136,13 +136,14 @@ export const FacultyManagement = () => {
 
   const handleFaceSampleCaptured = async ({ embedding, personConfidence }) => {
     const now = Date.now();
-    if (now - facultyLastCaptureRef.current < 750 || saving) return;
+    if (now - facultyLastCaptureRef.current < 450 || saving) return;
     if (!embedding || !Array.isArray(embedding) || embedding.length < 16) return;
 
     facultyLastCaptureRef.current = now;
     facultySamplesRef.current.push(embedding);
     const next = facultySamplesRef.current.length;
     setCapturedSamples(next);
+    playSuccessChime();
 
     if (next >= 3) {
       setSaving(true);

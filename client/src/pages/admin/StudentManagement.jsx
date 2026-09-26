@@ -118,13 +118,14 @@ export const StudentManagement = () => {
   // Step 2: Capture Face Sample via Camera
   const handleFaceSampleCaptured = async ({ embedding, personConfidence }) => {
     const now = Date.now();
-    if (now - adminLastCaptureRef.current < 750 || saving) return;
+    if (now - adminLastCaptureRef.current < 450 || saving) return;
     if (!embedding || !Array.isArray(embedding) || embedding.length < 16) return;
 
     adminLastCaptureRef.current = now;
     adminSamplesRef.current.push(embedding);
     const next = adminSamplesRef.current.length;
     setCapturedSamples(next);
+    playSuccessChime();
 
     if (next >= 3) {
       setSaving(true);
