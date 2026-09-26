@@ -18,6 +18,7 @@ import {
   Sparkles,
   Layers,
   FileSpreadsheet,
+  Edit3,
 } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -55,6 +56,8 @@ export const FacultyAttendanceSession = () => {
     { num: 7, name: 'Period 7', start: '16:00', end: '17:00', dead: '16:20' },
   ];
 
+  const [existingSessionsForDay, setExistingSessionsForDay] = useState([]);
+
   // Fetch Classrooms on mount
   useEffect(() => {
     const fetchClassrooms = async () => {
@@ -70,6 +73,23 @@ export const FacultyAttendanceSession = () => {
     };
     fetchClassrooms();
   }, []);
+
+  // Fetch existing sessions for today whenever classroom changes
+  useEffect(() => {
+    const fetchExistingSessions = async () => {
+      if (!selectedClassroomId) return;
+      try {
+        const today = format(new Date(), 'yyyy-MM-dd');
+        const res = await apiClient.get(`/sessions?date=${today}&classroomId=${selectedClassroomId}`);
+        if (res.data.success) {
+          setExistingSessionsForDay(res.data.sessions || []);
+        }
+      } catch (err) {
+        console.error('Error checking existing sessions:', err);
+      }
+    };
+    fetchExistingSessions();
+  }, [selectedClassroomId]);
 
   // If sessionIdParam passed, load that active session directly
   useEffect(() => {
@@ -103,9 +123,19 @@ export const FacultyAttendanceSession = () => {
     }
   };
 
+  // Check if attendance is already recorded and stored for the currently selected period
+  const storedPeriodSession = existingSessionsForDay.find(
+    (s) => s.sessionNumber === selectedPeriod
+  );
+  const isAttendanceAlreadyStored =
+    storedPeriodSession &&
+    (storedPeriodSession.status === 'completed' ||
+      storedPeriodSession.presentCount > 0 ||
+      storedPeriodSession.absentCount > 0);
+
   // Launch New Live Attendance Session (Room Number -> Subject -> Timings)
   const handleLaunchSession = async (e) => {
-    e.preventDefault();
+    if (e && e.preventDefault) e.preventDefault();
     if (!selectedClassroomId) {
       setMessage('Please select a classroom.');
       return;
@@ -371,14 +401,64 @@ export const FacultyAttendanceSession = () => {
               </div>
             </div>
 
-            <button
-              type="submit"
-              disabled={launching}
-              className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-600 hover:to-emerald-700 text-slate-950 font-extrabold text-sm shadow-xl shadow-teal-500/20 flex items-center justify-center gap-2 transition-all mt-4"
-            >
-              <Play className="w-4 h-4 fill-current" />
-              <span>{launching ? 'Initializing Optical Camera...' : 'Launch Live Attendance Scanner'}</span>
-            </button>
+            {/* If Attendance is already stored, show notice and prominent Edit Attendance action */}
+            {isAttendanceAlreadyStored ? (
+              <div className="p-5 rounded-2xl bg-amber-950/40 border border-amber-500/40 space-y-3.5 mt-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center shrink-0 text-amber-400">
+                    <AlertTriangle className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-extrabold text-amber-200">
+                      Attendance Already Recorded & Stored for Period {selectedPeriod}
+                    </h3>
+                    <p className="text-xs text-amber-300/80 mt-1">
+                      Attendance for this period has already been captured and stored in the database.
+                      Attendance can only be taken once per session.
+                    </p>
+                    <div className="flex items-center gap-3 mt-2.5 text-xs font-mono">
+                      <span className="px-2.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold">
+                        ✓ {storedPeriodSession.presentCount || 0} Present
+                      </span>
+                      <span className="px-2.5 py-0.5 rounded-md bg-rose-500/20 text-rose-300 border border-rose-500/30 font-bold">
+                        ✗ {storedPeriodSession.absentCount || 0} Absent
+                      </span>
+                      <span className="text-slate-400">
+                        • Status: {storedPeriodSession.status.toUpperCase()}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-center gap-2.5 pt-3 border-t border-amber-500/20">
+                  <button
+                    type="button"
+                    onClick={() => setCurrentView('matrix')}
+                    className="w-full sm:w-auto flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs flex items-center justify-center gap-2 transition-all shadow-lg shadow-amber-500/20"
+                  >
+                    <Edit3 className="w-4 h-4" />
+                    <span>Edit Your Attendance (1-Click Override)</span>
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={launching}
+                    className="w-full sm:w-auto py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors border border-slate-700"
+                  >
+                    <ScanFace className="w-4 h-4 text-teal-400" />
+                    <span>Re-open Camera Scanner</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="submit"
+                disabled={launching}
+                className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-600 hover:to-emerald-700 text-slate-950 font-extrabold text-sm shadow-xl shadow-teal-500/20 flex items-center justify-center gap-2 transition-all mt-4"
+              >
+                <Play className="w-4 h-4 fill-current" />
+                <span>{launching ? 'Initializing Optical Camera...' : 'Launch Live Attendance Scanner'}</span>
+              </button>
+            )}
           </form>
         </div>
       )}

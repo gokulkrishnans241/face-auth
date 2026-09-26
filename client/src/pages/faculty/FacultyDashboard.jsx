@@ -14,7 +14,9 @@ import {
   ArrowRight,
   Sparkles,
   Camera,
-  BookOpen,
+  Layers,
+  FileCode,
+  ShieldCheck,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { Link, useNavigate } from 'react-router-dom';
@@ -51,62 +53,122 @@ export const FacultyDashboard = () => {
   const completedSessions = sessions.filter((s) => s.status === 'completed');
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="p-5 rounded-2xl glass-panel flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="space-y-8 max-w-6xl mx-auto py-4">
+      {/* Welcome Banner */}
+      <div className="p-6 rounded-3xl glass-panel flex flex-col sm:flex-row sm:items-center justify-between gap-4 border border-slate-800">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl sm:text-2xl font-extrabold text-white font-outfit">
-              Faculty Classroom Portal
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-2xl sm:text-3xl font-black text-white font-outfit">
+              Faculty Attendance Portal
             </h1>
-            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-teal-500/20 text-teal-300 border border-teal-500/30">
+            <span className="px-3 py-1 rounded-full text-[11px] font-extrabold bg-teal-500/20 text-teal-300 border border-teal-500/30">
               FACULTY DESK
             </span>
           </div>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Welcome, {user?.name} • Select room, subject, and timings to launch live camera attendance
+          <p className="text-sm text-slate-300 mt-1">
+            Welcome, <strong className="text-white">{user?.name}</strong> • Choose an action below to begin
           </p>
         </div>
 
-        <Link
-          to="/faculty/reports"
-          className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-teal-300 text-xs font-semibold flex items-center gap-1.5 transition-colors self-start sm:self-auto"
-        >
-          <FileSpreadsheet className="w-3.5 h-3.5" />
-          <span>My Class Reports</span>
-        </Link>
+        <div className="flex items-center gap-2 text-xs font-mono text-slate-400 bg-slate-900/80 px-4 py-2 rounded-2xl border border-slate-800 self-start sm:self-auto">
+          <Clock className="w-4 h-4 text-teal-400" />
+          <span>{format(new Date(), 'EEEE, dd MMMM yyyy')}</span>
+        </div>
       </div>
 
-      {/* Hero Attendance Launcher Card */}
-      <div className="p-6 sm:p-8 rounded-3xl bg-gradient-to-br from-teal-950/90 via-slate-900 to-slate-950 border border-teal-500/40 shadow-2xl relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div className="space-y-2 max-w-xl">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-teal-500/10 border border-teal-500/30 text-teal-300 text-xs font-semibold">
-            <Camera className="w-3.5 h-3.5" />
-            <span>OPTICAL FACE SCANNER STATION</span>
+      {/* THE TWO PRIMARY ACTIONS */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8">
+        {/* OPTION 1: LIVE ATTENDANCE */}
+        <div className="p-6 sm:p-8 rounded-3xl bg-gradient-to-br from-teal-950/80 via-slate-900 to-slate-950 border-2 border-teal-500/40 shadow-2xl hover:border-teal-400 transition-all flex flex-col justify-between group relative overflow-hidden">
+          <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
+            <ScanFace className="w-36 h-36 text-teal-400" />
           </div>
-          <h2 className="text-xl sm:text-2xl font-extrabold text-white font-outfit">
-            Launch Live Classroom Attendance
-          </h2>
-          <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-            Select your <strong>Classroom (Room 101–107)</strong>, <strong>Subject</strong>, and <strong>Period Timings</strong>. Place your device at the classroom entrance so students pass by and automatically verify their presence!
-          </p>
+
+          <div className="space-y-4 relative z-10">
+            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-teal-400 to-emerald-500 flex items-center justify-center text-slate-950 shadow-lg shadow-teal-500/30">
+              <ScanFace className="w-8 h-8 stroke-[2.2]" />
+            </div>
+
+            <div>
+              <span className="px-3 py-1 rounded-full text-[10px] font-bold bg-teal-500/20 text-teal-300 border border-teal-500/30 uppercase tracking-wider">
+                Option 1 • Live Scanner
+              </span>
+              <h2 className="text-2xl font-black text-white font-outfit mt-2">
+                Take Live Attendance
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-300 mt-1.5 leading-relaxed">
+                Launch optical biometric face recognition for your classroom. Automatically identify students by name in real-time, enforce single-scan attendance, and display verified identity badges.
+              </p>
+            </div>
+
+            <div className="pt-2 flex flex-wrap gap-2 text-[11px] text-teal-300/80 font-mono">
+              <span className="px-2.5 py-1 rounded-lg bg-teal-950/80 border border-teal-800/60">✓ 68 Face Landmarks</span>
+              <span className="px-2.5 py-1 rounded-lg bg-teal-950/80 border border-teal-800/60">✓ Real-time Name HUD</span>
+              <span className="px-2.5 py-1 rounded-lg bg-teal-950/80 border border-teal-800/60">✓ Anti-Duplicate Check</span>
+            </div>
+          </div>
+
+          <div className="mt-8 pt-6 border-t border-slate-800/80 relative z-10">
+            <button
+              onClick={() => navigate('/faculty/attendance')}
+              className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-teal-400 via-teal-500 to-emerald-500 hover:from-teal-300 hover:to-emerald-400 text-slate-950 font-black text-sm shadow-xl shadow-teal-500/25 flex items-center justify-center gap-2.5 transition-all transform hover:scale-[1.02] active:scale-[0.99]"
+            >
+              <Play className="w-5 h-5 fill-current" />
+              <span>Launch Live Attendance Scanner</span>
+              <ArrowRight className="w-4 h-4 ml-1" />
+            </button>
+          </div>
         </div>
 
-        <button
-          onClick={() => navigate('/faculty/attendance')}
-          className="px-6 py-3.5 rounded-2xl bg-gradient-to-r from-teal-400 to-emerald-500 hover:from-teal-500 hover:to-emerald-600 text-slate-950 font-extrabold text-xs sm:text-sm shadow-xl shadow-teal-500/25 flex items-center justify-center gap-2 transition-all transform hover:scale-[1.02] shrink-0"
-        >
-          <Play className="w-4 h-4 fill-current" />
-          <span>Select Room & Launch Scanner</span>
-        </button>
+        {/* OPTION 2: CLASS SUMMARY */}
+        <div className="p-6 sm:p-8 rounded-3xl bg-gradient-to-br from-purple-950/60 via-slate-900 to-slate-950 border-2 border-purple-500/40 shadow-2xl hover:border-purple-400 transition-all flex flex-col justify-between group relative overflow-hidden">
+          <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
+            <Building2 className="w-36 h-36 text-purple-400" />
+          </div>
+
+          <div className="space-y-4 relative z-10">
+            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-purple-400 to-indigo-500 flex items-center justify-center text-slate-950 shadow-lg shadow-purple-500/30">
+              <Building2 className="w-8 h-8 stroke-[2.2]" />
+            </div>
+
+            <div>
+              <span className="px-3 py-1 rounded-full text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30 uppercase tracking-wider">
+                Option 2 • Timetable Matrix
+              </span>
+              <h2 className="text-2xl font-black text-white font-outfit mt-2">
+                Class Summary (Periods 1–7)
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-300 mt-1.5 leading-relaxed">
+                View all classrooms and periods (Period 1 to Period 7). Edit stored attendance with 1-click status overrides (Present / Absent) and instantly download Excel (.xlsx) and XML (.xml) attendance sheets.
+              </p>
+            </div>
+
+            <div className="pt-2 flex flex-wrap gap-2 text-[11px] text-purple-300/80 font-mono">
+              <span className="px-2.5 py-1 rounded-lg bg-purple-950/80 border border-purple-800/60">✓ 7 Classes x 7 Periods</span>
+              <span className="px-2.5 py-1 rounded-lg bg-purple-950/80 border border-purple-800/60">✓ 1-Click Status Edit</span>
+              <span className="px-2.5 py-1 rounded-lg bg-purple-950/80 border border-purple-800/60">✓ Download XML & Excel</span>
+            </div>
+          </div>
+
+          <div className="mt-8 pt-6 border-t border-slate-800/80 relative z-10">
+            <button
+              onClick={() => navigate('/faculty/reports')}
+              className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-purple-400 via-purple-500 to-indigo-500 hover:from-purple-300 hover:to-indigo-400 text-slate-950 font-black text-sm shadow-xl shadow-purple-500/25 flex items-center justify-center gap-2.5 transition-all transform hover:scale-[1.02] active:scale-[0.99]"
+            >
+              <FileSpreadsheet className="w-5 h-5" />
+              <span>View Class Summary & Export</span>
+              <ArrowRight className="w-4 h-4 ml-1" />
+            </button>
+          </div>
+        </div>
       </div>
 
-      {/* Quick Metrics */}
+      {/* Quick Status Bar */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <StatCard
           title="Assigned Classrooms"
-          value={classrooms.length}
-          subtitle="Available for Teaching"
+          value={classrooms.length || 7}
+          subtitle="All Active Rooms"
           icon={Building2}
           color="teal"
         />
@@ -120,56 +182,17 @@ export const FacultyDashboard = () => {
         <StatCard
           title="Active Live Sessions"
           value={activeSessions.length}
-          subtitle="Camera Scanning Open"
+          subtitle="Scanning In Progress"
           icon={ScanFace}
           color="emerald"
         />
         <StatCard
           title="Completed Today"
           value={completedSessions.length}
-          subtitle="Finalized Records"
+          subtitle="Attendance Finalized"
           icon={CheckCircle}
           color="purple"
         />
-      </div>
-
-      {/* Assigned Classrooms List */}
-      <div className="p-5 sm:p-6 rounded-3xl glass-panel space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-sm font-bold text-white uppercase tracking-wider">
-            <Building2 className="w-4 h-4 text-teal-400" />
-            <span>My Assigned Classrooms (Room 101 to 107)</span>
-          </div>
-          <span className="text-xs text-slate-400 font-mono">{classrooms.length} Available</span>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {classrooms.map((cr) => (
-            <div
-              key={cr._id}
-              className="p-4 rounded-2xl glass-card border border-slate-800 hover:border-teal-500/40 transition-all flex flex-col justify-between"
-            >
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="px-2.5 py-0.5 rounded-lg text-xs font-mono font-bold bg-teal-500/15 text-teal-300 border border-teal-500/30">
-                    {cr.classroomId}
-                  </span>
-                  <span className="text-[10px] text-slate-400 font-mono">{cr.capacity} Seats</span>
-                </div>
-                <h3 className="text-sm font-bold text-white font-outfit">{cr.name}</h3>
-                <p className="text-xs text-slate-400 mt-0.5">{cr.department} • {cr.course}</p>
-              </div>
-
-              <button
-                onClick={() => navigate(`/faculty/attendance`)}
-                className="mt-4 w-full py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-teal-300 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors border border-slate-800"
-              >
-                <ScanFace className="w-3.5 h-3.5" />
-                <span>Start Class Attendance</span>
-              </button>
-            </div>
-          ))}
-        </div>
       </div>
     </div>
   );

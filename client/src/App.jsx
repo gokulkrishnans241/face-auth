@@ -4,7 +4,6 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 
 // Common Components
 import Navbar from './components/common/Navbar';
-import Sidebar from './components/common/Sidebar';
 
 // Pages
 import Login from './pages/Login';
@@ -30,7 +29,7 @@ import StudentDashboard from './pages/student/StudentDashboard';
 import StudentEnrollFace from './pages/student/StudentEnrollFace';
 import StudentReports from './pages/student/StudentReports';
 
-// Protected App Layout Wrapper
+// Protected App Layout Wrapper (Clean, No Sidebar Layout)
 const AppLayout = () => {
   const { user, loading } = useAuth();
 
@@ -53,7 +52,6 @@ const AppLayout = () => {
     <div className="min-h-screen bg-slate-950 flex flex-col">
       <Navbar />
       <div className="flex-1 flex max-w-[1600px] w-full mx-auto">
-        <Sidebar />
         <main className="flex-1 p-4 sm:p-6 lg:p-8 min-w-0 overflow-y-auto">
           <Outlet />
         </main>

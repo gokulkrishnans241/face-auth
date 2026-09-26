@@ -144,6 +144,115 @@ export const AdminDashboard = () => {
         </div>
       )}
 
+      {/* THE TWO PRIMARY ACTIONS */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8">
+        {/* OPTION 1: LIVE ATTENDANCE */}
+        <div className="p-6 sm:p-8 rounded-3xl bg-gradient-to-br from-teal-950/80 via-slate-900 to-slate-950 border-2 border-teal-500/40 shadow-2xl hover:border-teal-400 transition-all flex flex-col justify-between group relative overflow-hidden">
+          <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
+            <ScanFace className="w-36 h-36 text-teal-400" />
+          </div>
+
+          <div className="space-y-4 relative z-10">
+            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-teal-400 to-emerald-500 flex items-center justify-center text-slate-950 shadow-lg shadow-teal-500/30">
+              <ScanFace className="w-8 h-8 stroke-[2.2]" />
+            </div>
+
+            <div>
+              <span className="px-3 py-1 rounded-full text-[10px] font-bold bg-teal-500/20 text-teal-300 border border-teal-500/30 uppercase tracking-wider">
+                Option 1 • Live Scanner
+              </span>
+              <h2 className="text-2xl font-black text-white font-outfit mt-2">
+                Take Live Attendance
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-300 mt-1.5 leading-relaxed">
+                Launch optical biometric face recognition scanner. Real-time name display (e.g. "Identity Verified – Gokul Krishnan"), single-scan enforcement, and instant verified check-in.
+              </p>
+            </div>
+
+            <div className="pt-2 flex flex-wrap gap-2 text-[11px] text-teal-300/80 font-mono">
+              <span className="px-2.5 py-1 rounded-lg bg-teal-950/80 border border-teal-800/60">✓ 68 Landmarks Mesh</span>
+              <span className="px-2.5 py-1 rounded-lg bg-teal-950/80 border border-teal-800/60">✓ Name & ID Display</span>
+              <span className="px-2.5 py-1 rounded-lg bg-teal-950/80 border border-teal-800/60">✓ Anti-Duplicate Storage</span>
+            </div>
+          </div>
+
+          <div className="mt-8 pt-6 border-t border-slate-800/80 relative z-10">
+            <Link
+              to="/faculty/attendance"
+              className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-teal-400 via-teal-500 to-emerald-500 hover:from-teal-300 hover:to-emerald-400 text-slate-950 font-black text-sm shadow-xl shadow-teal-500/25 flex items-center justify-center gap-2.5 transition-all transform hover:scale-[1.02] active:scale-[0.99]"
+            >
+              <ScanFace className="w-5 h-5" />
+              <span>Launch Live Attendance Scanner</span>
+            </Link>
+          </div>
+        </div>
+
+        {/* OPTION 2: CLASS SUMMARY */}
+        <div className="p-6 sm:p-8 rounded-3xl bg-gradient-to-br from-purple-950/60 via-slate-900 to-slate-950 border-2 border-purple-500/40 shadow-2xl hover:border-purple-400 transition-all flex flex-col justify-between group relative overflow-hidden">
+          <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
+            <Building2 className="w-36 h-36 text-purple-400" />
+          </div>
+
+          <div className="space-y-4 relative z-10">
+            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-purple-400 to-indigo-500 flex items-center justify-center text-slate-950 shadow-lg shadow-purple-500/30">
+              <Building2 className="w-8 h-8 stroke-[2.2]" />
+            </div>
+
+            <div>
+              <span className="px-3 py-1 rounded-full text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30 uppercase tracking-wider">
+                Option 2 • Timetable Matrix
+              </span>
+              <h2 className="text-2xl font-black text-white font-outfit mt-2">
+                Class Summary (7 Classes)
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-300 mt-1.5 leading-relaxed">
+                Summary across all 7 classrooms for Periods 1 to 7. 1-click status edits (Present / Absent) and 1-click downloads for both Excel (.xlsx) and XML (.xml) attendance reports.
+              </p>
+            </div>
+
+            <div className="pt-2 flex flex-wrap gap-2 text-[11px] text-purple-300/80 font-mono">
+              <span className="px-2.5 py-1 rounded-lg bg-purple-950/80 border border-purple-800/60">✓ 7 Classes Matrix</span>
+              <span className="px-2.5 py-1 rounded-lg bg-purple-950/80 border border-purple-800/60">✓ Periods 1 to 7 Breakdown</span>
+              <span className="px-2.5 py-1 rounded-lg bg-purple-950/80 border border-purple-800/60">✓ Download XML & Excel</span>
+            </div>
+          </div>
+
+          <div className="mt-8 pt-6 border-t border-slate-800/80 relative z-10">
+            <Link
+              to="/admin/classrooms"
+              className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-purple-400 via-purple-500 to-indigo-500 hover:from-purple-300 hover:to-indigo-400 text-slate-950 font-black text-sm shadow-xl shadow-purple-500/25 flex items-center justify-center gap-2.5 transition-all transform hover:scale-[1.02] active:scale-[0.99]"
+            >
+              <Building2 className="w-5 h-5" />
+              <span>View Class Summary & Period Matrix</span>
+            </Link>
+          </div>
+        </div>
+      </div>
+
+      {/* Administrative Enrollment Quick Links */}
+      <div className="p-4 sm:p-5 rounded-2xl bg-slate-900/90 border border-slate-800 flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-2 text-xs text-slate-300 font-semibold">
+          <Users className="w-4 h-4 text-teal-400" />
+          <span>Biometric Enrollment & Account Registrations:</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <Link
+            to="/admin/students"
+            className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-teal-300 border border-slate-700 text-xs font-bold flex items-center gap-1.5 transition-all hover:border-teal-500/40"
+          >
+            <Users className="w-3.5 h-3.5" />
+            <span>Student Face Enrollment</span>
+          </Link>
+          <Link
+            to="/admin/faculty"
+            className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-purple-300 border border-slate-700 text-xs font-bold flex items-center gap-1.5 transition-all hover:border-purple-500/40"
+          >
+            <Users className="w-3.5 h-3.5" />
+            <span>Faculty Face Enrollment</span>
+          </Link>
+        </div>
+      </div>
+
       {/* Top Level Summary KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
         <StatCard

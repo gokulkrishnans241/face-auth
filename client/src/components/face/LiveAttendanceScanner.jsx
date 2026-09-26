@@ -103,9 +103,11 @@ export const LiveAttendanceScanner = ({
 
         setFeedback({
           success: true,
-          title: `Identity Verified – ${student.name}`,
+          title: already
+            ? `Attendance Already Stored – ${student.name}`
+            : `Identity Verified – ${student.name}`,
           subtitle: already
-            ? `Already Recorded Present (${student.userId})`
+            ? `Attendance can only be taken once • Already Recorded Present (${student.userId})`
             : `Attendance Marked PRESENT • ID: ${student.userId}`,
         });
 

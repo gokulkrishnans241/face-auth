@@ -1,6 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { ScanFace, Clock, ShieldCheck, GraduationCap, UserCheck, LogOut, Sparkles } from 'lucide-react';
+import { NavLink, Link } from 'react-router-dom';
+import {
+  ScanFace,
+  Clock,
+  ShieldCheck,
+  GraduationCap,
+  UserCheck,
+  LogOut,
+  Sparkles,
+  Building2,
+  Calendar,
+  Users,
+} from 'lucide-react';
 import { format } from 'date-fns';
 
 export const Navbar = () => {
@@ -12,10 +24,14 @@ export const Navbar = () => {
     return () => clearInterval(timer);
   }, []);
 
+  const homePath = isAdmin ? '/admin' : isFaculty ? '/faculty' : '/student';
+  const liveAttendancePath = '/faculty/attendance';
+  const classSummaryPath = isAdmin ? '/admin/classrooms' : '/faculty/reports';
+
   const getRoleBadge = () => {
     if (isAdmin) {
       return (
-        <span className="flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
+        <span className="hidden sm:flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
           <ShieldCheck className="w-3.5 h-3.5 text-purple-400" />
           ADMINISTRATOR
         </span>
@@ -23,14 +39,14 @@ export const Navbar = () => {
     }
     if (isFaculty) {
       return (
-        <span className="flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full bg-teal-500/20 text-teal-300 border border-teal-500/30">
+        <span className="hidden sm:flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full bg-teal-500/20 text-teal-300 border border-teal-500/30">
           <UserCheck className="w-3.5 h-3.5 text-teal-400" />
           FACULTY
         </span>
       );
     }
     return (
-      <span className="flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+      <span className="hidden sm:flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
         <GraduationCap className="w-3.5 h-3.5 text-cyan-400" />
         STUDENT
       </span>
@@ -38,11 +54,11 @@ export const Navbar = () => {
   };
 
   return (
-    <header className="sticky top-0 z-40 w-full border-b border-slate-800/80 bg-slate-950/80 backdrop-blur-md">
-      <div className="flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
+    <header className="sticky top-0 z-40 w-full border-b border-slate-800/80 bg-slate-950/90 backdrop-blur-md">
+      <div className="flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8 max-w-[1600px] mx-auto">
         {/* Left: Brand / Logo */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-teal-500 to-emerald-600 shadow-lg shadow-teal-500/20 text-slate-950">
+        <Link to={homePath} className="flex items-center gap-3 group">
+          <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-teal-500 to-emerald-600 shadow-lg shadow-teal-500/20 text-slate-950 group-hover:scale-105 transition-transform">
             <ScanFace className="w-6 h-6 stroke-[2.2]" />
           </div>
           <div>
@@ -58,33 +74,88 @@ export const Navbar = () => {
               College of Engineering & Technology
             </p>
           </div>
-        </div>
+        </Link>
 
-        {/* Center: Live IST Clock & Date */}
-        <div className="hidden md:flex items-center gap-4 px-4 py-1.5 rounded-full bg-slate-900/90 border border-slate-800">
-          <div className="flex items-center gap-1.5 text-xs text-slate-300 font-mono">
+        {/* Center: The TWO Primary Navigation Buttons (Live Attendance & Class Summary) */}
+        {!isStudent ? (
+          <div className="flex items-center gap-2 sm:gap-3 bg-slate-900/80 p-1.5 rounded-2xl border border-slate-800">
+            <NavLink
+              to={liveAttendancePath}
+              className={({ isActive }) =>
+                `flex items-center gap-2 px-3.5 sm:px-5 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+                  isActive
+                    ? 'bg-gradient-to-r from-teal-500 to-emerald-600 text-slate-950 shadow-md shadow-teal-500/20 scale-105'
+                    : 'text-slate-300 hover:text-white hover:bg-slate-800/80'
+                }`
+              }
+            >
+              <ScanFace className="w-4 h-4" />
+              <span>Live Attendance</span>
+            </NavLink>
+
+            <NavLink
+              to={classSummaryPath}
+              className={({ isActive }) =>
+                `flex items-center gap-2 px-3.5 sm:px-5 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+                  isActive
+                    ? 'bg-gradient-to-r from-teal-500 to-emerald-600 text-slate-950 shadow-md shadow-teal-500/20 scale-105'
+                    : 'text-slate-300 hover:text-white hover:bg-slate-800/80'
+                }`
+              }
+            >
+              <Building2 className="w-4 h-4" />
+              <span>Class Summary</span>
+            </NavLink>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 sm:gap-3 bg-slate-900/80 p-1.5 rounded-2xl border border-slate-800">
+            <NavLink
+              to="/student/enroll"
+              className={({ isActive }) =>
+                `flex items-center gap-2 px-3.5 sm:px-5 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+                  isActive
+                    ? 'bg-gradient-to-r from-teal-500 to-emerald-600 text-slate-950 shadow-md shadow-teal-500/20'
+                    : 'text-slate-300 hover:text-white hover:bg-slate-800/80'
+                }`
+              }
+            >
+              <ScanFace className="w-4 h-4" />
+              <span>Face Enrollment</span>
+            </NavLink>
+
+            <NavLink
+              to="/student/reports"
+              className={({ isActive }) =>
+                `flex items-center gap-2 px-3.5 sm:px-5 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+                  isActive
+                    ? 'bg-gradient-to-r from-teal-500 to-emerald-600 text-slate-950 shadow-md shadow-teal-500/20'
+                    : 'text-slate-300 hover:text-white hover:bg-slate-800/80'
+                }`
+              }
+            >
+              <Building2 className="w-4 h-4" />
+              <span>My Attendance</span>
+            </NavLink>
+          </div>
+        )}
+
+        {/* Right: Clock & User Profile & Role & Logout */}
+        <div className="flex items-center gap-2 sm:gap-4">
+          <div className="hidden xl:flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900/90 border border-slate-800 text-xs text-slate-300 font-mono">
             <Clock className="w-3.5 h-3.5 text-teal-400" />
             <span>{format(time, 'hh:mm:ss a')}</span>
-            <span className="text-[10px] text-slate-500">IST</span>
           </div>
-          <div className="h-3 w-px bg-slate-700" />
-          <div className="text-xs text-slate-400 font-medium">
-            {format(time, 'EEE, dd MMM yyyy')}
-          </div>
-        </div>
 
-        {/* Right: User Profile & Role & Logout */}
-        <div className="flex items-center gap-3 sm:gap-4">
           {getRoleBadge()}
 
-          <div className="hidden sm:flex flex-col text-right">
-            <span className="text-xs font-medium text-slate-200">{user?.name}</span>
+          <div className="hidden md:flex flex-col text-right">
+            <span className="text-xs font-semibold text-slate-200">{user?.name}</span>
             <span className="text-[10px] text-slate-400 font-mono">{user?.userId}</span>
           </div>
 
           <button
             onClick={logout}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors border border-transparent hover:border-red-500/20"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:text-red-400 hover:bg-red-500/10 rounded-xl transition-colors border border-slate-800 hover:border-red-500/30"
             title="Sign out of system"
           >
             <LogOut className="w-4 h-4" />
