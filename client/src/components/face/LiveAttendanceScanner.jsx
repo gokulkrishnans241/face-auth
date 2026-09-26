@@ -124,8 +124,8 @@ export const LiveAttendanceScanner = ({
         setScanState('unknown');
         setFeedback({
           success: false,
-          title: 'Unknown Face – Try Again',
-          subtitle: 'Face not recognized in this classroom roster',
+          title: 'Unregistered User – Face Not Recognized',
+          subtitle: 'This person is not enrolled in the system. Please register face biometric first.',
         });
       } else if (status === 409) {
         setScanState('error');
@@ -261,6 +261,31 @@ export const LiveAttendanceScanner = ({
                 {lastMatch.confidence}% MATCH
               </span>
             </div>
+          </div>
+        )}
+
+        {/* Unregistered User Warning Banner */}
+        {scanState === 'unknown' && !lastMatch && (
+          <div className="p-4 rounded-2xl bg-gradient-to-r from-rose-950/90 via-slate-900 to-amber-950/60 border-2 border-rose-500/50 flex items-center justify-between shadow-lg animate-pulse">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-500/20 text-rose-300 border border-rose-500/40 flex items-center justify-center font-bold text-sm">
+                <UserX className="w-5 h-5 text-rose-400" />
+              </div>
+              <div>
+                <div className="text-sm font-black text-rose-200 font-outfit flex items-center gap-2">
+                  <span>Unregistered User Detected</span>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-rose-500/30 text-rose-200 border border-rose-500/50">
+                    NOT ENROLLED
+                  </span>
+                </div>
+                <p className="text-xs text-rose-300/80 mt-0.5">
+                  Unknown face detected • No attendance marked • Please enroll face biometric in portal
+                </p>
+              </div>
+            </div>
+            <span className="px-3 py-1 rounded-xl bg-rose-500/20 text-rose-300 text-xs font-bold font-mono border border-rose-500/30 shrink-0">
+              REJECTED
+            </span>
           </div>
         )}
 
