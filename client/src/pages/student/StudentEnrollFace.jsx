@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import CameraHUD, { playSuccessChime } from '../../components/face/CameraHUD';
+import { validateSampleConsistency } from '../../services/faceApiService';
 import apiClient from '../../api/client';
 import {
   Shield,
@@ -29,6 +30,8 @@ export const StudentEnrollFace = () => {
       return;
     }
     setError('');
+    samplesRef.current = [];
+    setSamplesCount(0);
     setStep('capture');
   };
 
@@ -50,6 +53,15 @@ export const StudentEnrollFace = () => {
       setSubmitting(true);
       setError('');
       try {
+        const consistency = validateSampleConsistency(samplesRef.current);
+        if (!consistency.isConsistent) {
+          setError(consistency.reason);
+          samplesRef.current = [];
+          setSamplesCount(0);
+          setSubmitting(false);
+          return;
+        }
+
         const numDims = embedding.length;
         const avgVec = new Array(numDims).fill(0);
         samplesRef.current.forEach((s) => {

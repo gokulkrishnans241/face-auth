@@ -4,6 +4,7 @@ import CameraHUD, { playSuccessChime } from './CameraHUD';
 import apiClient from '../../api/client';
 import { Shield, Check, Sparkles, AlertCircle, RefreshCw, ScanFace } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { validateSampleConsistency } from '../../services/faceApiService';
 
 export const FaceEnrollmentModal = ({ isOpen, onClose, user, onEnrollmentComplete }) => {
   const [step, setStep] = useState('consent'); // 'consent' | 'capture' | 'complete'
@@ -45,6 +46,15 @@ export const FaceEnrollmentModal = ({ isOpen, onClose, user, onEnrollmentComplet
     playSuccessChime();
 
     if (count >= 3) {
+      // Validate consistency among the 3 captured samples
+      const consistency = validateSampleConsistency(collectedSamplesRef.current);
+      if (!consistency.isConsistent) {
+        setError(consistency.reason);
+        collectedSamplesRef.current = [];
+        setSamplesCount(0);
+        return;
+      }
+
       // Average the 3 samples into a master biometric descriptor
       const numDims = embedding.length;
       const avgVec = new Array(numDims).fill(0);
@@ -63,7 +73,7 @@ export const FaceEnrollmentModal = ({ isOpen, onClose, user, onEnrollmentComplet
       let normSq = 0;
       for (let i = 0; i < numDims; i++) normSq += avgVec[i] * avgVec[i];
       const norm = Math.sqrt(normSq) || 1;
-      const normalizedAvg = avgVec.map((v) => parseFloat((v / norm).toFixed(5)));
+      const normalizedAvg = avgVec.map((v) => parseFloat((v / norm).toFixed(6)));
 
       submitEnrollment(normalizedAvg);
     }

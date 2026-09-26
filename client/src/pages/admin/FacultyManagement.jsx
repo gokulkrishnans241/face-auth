@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import apiClient from '../../api/client';
 import Modal from '../../components/common/Modal';
 import CameraHUD, { playSuccessChime } from '../../components/face/CameraHUD';
+import { validateSampleConsistency } from '../../services/faceApiService';
 import {
   Users,
   UserPlus,
@@ -149,6 +150,15 @@ export const FacultyManagement = () => {
       setSaving(true);
       setError('');
       try {
+        const consistency = validateSampleConsistency(facultySamplesRef.current);
+        if (!consistency.isConsistent) {
+          setError(consistency.reason);
+          facultySamplesRef.current = [];
+          setCapturedSamples(0);
+          setSaving(false);
+          return;
+        }
+
         const target = createdFaculty || editingFaculty;
         const numDims = embedding.length;
         const avgVec = new Array(numDims).fill(0);
@@ -160,7 +170,7 @@ export const FacultyManagement = () => {
         let normSq = 0;
         for (let i = 0; i < numDims; i++) normSq += avgVec[i] * avgVec[i];
         const norm = Math.sqrt(normSq) || 1;
-        const normalizedAvg = avgVec.map((v) => parseFloat((v / norm).toFixed(5)));
+        const normalizedAvg = avgVec.map((v) => parseFloat((v / norm).toFixed(6)));
 
         const res = await apiClient.post('/face/enroll', {
           userId: target._id,

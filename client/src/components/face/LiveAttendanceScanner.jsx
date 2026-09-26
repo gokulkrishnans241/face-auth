@@ -15,6 +15,8 @@ import {
   ShieldCheck,
   RefreshCw,
   Eye,
+  AlertCircle,
+  HelpCircle,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -28,11 +30,12 @@ export const LiveAttendanceScanner = ({
   const [markedStudents, setMarkedStudents] = useState([]);
   const [lastMatch, setLastMatch] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [scanState, setScanState] = useState('idle'); // 'idle' | 'detecting' | 'recognizing' | 'verified' | 'unknown' | 'multiple' | 'error'
   const [togglingStudentId, setTogglingStudentId] = useState(null);
   const [feedback, setFeedback] = useState({
     success: false,
-    title: 'Ready for Face Recognition',
-    subtitle: 'Ask students to stand in front of camera',
+    title: 'Ready to Scan',
+    subtitle: 'Ask students to look directly at camera',
   });
   const [manualFilter, setManualFilter] = useState('');
   const lastScanTimestampRef = useRef(0);
@@ -46,10 +49,10 @@ export const LiveAttendanceScanner = ({
   }, [studentsList]);
 
   // Real optical biometric face verification against backend candidate profiles
-  const handleFaceDetectedInStream = async ({ embedding, brightness }) => {
+  const handleFaceDetectedInStream = async ({ embedding, personConfidence, guidance }) => {
     const now = Date.now();
-    // Debounce to at most 1 verification request per 1.5 seconds to prevent spamming
-    if (isProcessing || now - lastScanTimestampRef.current < 1500) {
+    // Debounce to at most 1 verification request per 1.2 seconds
+    if (isProcessing || now - lastScanTimestampRef.current < 1200) {
       return;
     }
     if (!embedding || !Array.isArray(embedding) || embedding.length < 16) {
@@ -58,6 +61,13 @@ export const LiveAttendanceScanner = ({
 
     lastScanTimestampRef.current = now;
     setIsProcessing(true);
+    setScanState('recognizing');
+
+    setFeedback({
+      success: false,
+      title: 'Recognizing Identity...',
+      subtitle: 'Matching facial embedding against classroom roster',
+    });
 
     try {
       const targetClassroomId = classroom?._id || classroom || session?.classroomId?._id || session?.classroomId;
@@ -71,6 +81,7 @@ export const LiveAttendanceScanner = ({
       if (res.data.success) {
         const student = res.data.student;
         const already = res.data.alreadyMarked;
+        const confidence = res.data.confidence || res.data.record?.recognitionConfidence || 98.5;
 
         playSuccessChime();
         if (!already) {
@@ -82,19 +93,20 @@ export const LiveAttendanceScanner = ({
           });
         }
 
+        setScanState('verified');
         setLastMatch({
           student,
           time: new Date(),
-          confidence: res.data.record?.recognitionConfidence || 98.5,
+          confidence,
           alreadyMarked: already,
         });
 
         setFeedback({
           success: true,
-          title: `VERIFIED: ${student.name}`,
+          title: `Identity Verified – ${student.name}`,
           subtitle: already
-            ? `Already recorded present (${student.userId})`
-            : `Marked PRESENT • ID: ${student.userId}`,
+            ? `Already Recorded Present (${student.userId})`
+            : `Attendance Marked PRESENT • ID: ${student.userId}`,
         });
 
         if (onAttendanceUpdated) {
@@ -102,17 +114,26 @@ export const LiveAttendanceScanner = ({
         }
       }
     } catch (err) {
-      // If face not recognized or not enrolled
       const status = err.response?.status;
       const errorMsg = err.response?.data?.message || 'Face matching failed';
+      const statusCode = err.response?.data?.status;
 
-      if (status === 404) {
+      if (status === 404 || statusCode === 'unknown_face') {
+        setScanState('unknown');
         setFeedback({
           success: false,
-          title: 'Face Not Enrolled',
+          title: 'Unknown Face – Try Again',
           subtitle: 'Face not recognized in this classroom roster',
         });
+      } else if (status === 409) {
+        setScanState('error');
+        setFeedback({
+          success: false,
+          title: 'Ambiguous Face Match',
+          subtitle: errorMsg || 'Multiple students have similar face descriptors',
+        });
       } else {
+        setScanState('error');
         setFeedback({
           success: false,
           title: 'Verification Pending',
@@ -204,7 +225,7 @@ export const LiveAttendanceScanner = ({
           </div>
         </div>
 
-        {/* Live HUD Component with Real Feature Extraction */}
+        {/* Live HUD Component with Deep Neural Face Verification */}
         <CameraHUD
           active={true}
           scanning={true}
@@ -212,11 +233,40 @@ export const LiveAttendanceScanner = ({
           matchFeedback={feedback}
         />
 
+        {/* Real-time Recognition Banner Display */}
+        {lastMatch && (
+          <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-950/80 to-teal-950/60 border border-emerald-500/40 flex items-center justify-between shadow-lg">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center justify-center font-bold text-sm">
+                <UserCheck className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="text-sm font-bold text-white font-outfit flex items-center gap-2">
+                  <span>{lastMatch.student.name}</span>
+                  <span className="text-xs font-mono text-emerald-400">({lastMatch.student.userId})</span>
+                </div>
+                <div className="text-xs text-emerald-300 flex items-center gap-2 mt-0.5">
+                  <span className="font-bold">✓ ATTENDANCE RECORDED PRESENT</span>
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    • {new Date(lastMatch.time).toLocaleTimeString()}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="text-right font-mono">
+              <span className="px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold">
+                {lastMatch.confidence}% MATCH
+              </span>
+            </div>
+          </div>
+        )}
+
         {/* Action Controls */}
         <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-xs text-slate-400">
             <ShieldCheck className="w-4 h-4 text-teal-400" />
-            <span>Biometric Anti-Spoofing & Shutter Protection Active</span>
+            <span>Biometric Anti-Spoofing & Deep Identity Verification Active</span>
           </div>
 
           {onSessionClosed && (

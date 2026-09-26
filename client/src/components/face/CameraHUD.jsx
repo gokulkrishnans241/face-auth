@@ -1,6 +1,23 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { Camera, CameraOff, RefreshCw, CheckCircle, ShieldAlert, Sparkles, Eye, Upload, AlertCircle, Scan, UserX, UserCheck, Cpu } from 'lucide-react';
-import { loadFaceModels, extractFaceFeaturesFromInput } from '../../services/faceApiService';
+import {
+  Camera,
+  CameraOff,
+  RefreshCw,
+  CheckCircle,
+  ShieldAlert,
+  Sparkles,
+  Eye,
+  Upload,
+  AlertCircle,
+  Scan,
+  UserX,
+  UserCheck,
+  Cpu,
+  Users,
+  AlertTriangle,
+  RotateCcw,
+} from 'lucide-react';
+import { loadFaceModels, detectFaceWithQuality } from '../../services/faceApiService';
 
 /**
  * Play a gentle success confirmation tone using Web Audio API
@@ -50,7 +67,9 @@ export const CameraHUD = ({
   const [videoInfo, setVideoInfo] = useState('Initializing');
   const [shutterCovered, setShutterCovered] = useState(false);
   const [humanPresent, setHumanPresent] = useState(false);
+  const [multipleFacesDetected, setMultipleFacesDetected] = useState(false);
   const [personConfidence, setPersonConfidence] = useState(0);
+  const [guidanceText, setGuidanceText] = useState('Align face in frame');
 
   // Pre-load Deep Face Recognition Models
   useEffect(() => {
@@ -82,7 +101,7 @@ export const CameraHUD = ({
     }
   }, [stream]);
 
-  // Start Camera
+  // Start Camera with flexible constraints
   const startCamera = useCallback(async () => {
     setCameraStatus('initializing');
     setErrorMessage('');
@@ -152,6 +171,14 @@ export const CameraHUD = ({
     };
   }, [active]);
 
+  // Restart Camera Button Handler
+  const handleRestartCamera = () => {
+    stopCamera();
+    setTimeout(() => {
+      startCamera();
+    }, 300);
+  };
+
   // Manual image upload fallback
   const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
@@ -162,10 +189,12 @@ export const CameraHUD = ({
       const img = new Image();
       img.onload = async () => {
         try {
-          const result = await extractFaceFeaturesFromInput(img);
+          const result = await detectFaceWithQuality(img);
           if (result && result.isDetected && result.descriptor && onFaceDetected) {
             setHumanPresent(true);
+            setMultipleFacesDetected(false);
             setPersonConfidence(result.score || 95);
+            setGuidanceText(result.guidance);
             onFaceDetected({
               embedding: result.descriptor,
               livenessVerified: true,
@@ -173,6 +202,8 @@ export const CameraHUD = ({
               brightness: 120,
               personConfidence: result.score || 95,
             });
+          } else if (result.multipleFaces) {
+            alert('Multiple faces detected in uploaded photo. Please upload a clear photo containing only one person.');
           } else {
             setHumanPresent(false);
             alert('No clear human face recognized in uploaded image. Please provide a clear portrait photo.');
@@ -193,11 +224,13 @@ export const CameraHUD = ({
 
     isAnalyzingRef.current = true;
     try {
-      const result = await extractFaceFeaturesFromInput(video);
+      const result = await detectFaceWithQuality(video);
       if (result && result.isDetected && result.descriptor) {
         setShutterCovered(false);
         setHumanPresent(true);
+        setMultipleFacesDetected(false);
         setPersonConfidence(result.score);
+        setGuidanceText(result.guidance);
 
         if (onFaceDetected) {
           onFaceDetected({
@@ -208,6 +241,9 @@ export const CameraHUD = ({
             personConfidence: result.score,
           });
         }
+      } else if (result.multipleFaces) {
+        setMultipleFacesDetected(true);
+        setHumanPresent(false);
       } else {
         setHumanPresent(false);
       }
@@ -218,7 +254,7 @@ export const CameraHUD = ({
     }
   };
 
-  // Continuous Deep Face Detection Loop (runs every 350ms)
+  // Continuous Deep Face Detection Loop (runs every 300ms)
   useEffect(() => {
     let intervalId;
 
@@ -241,7 +277,7 @@ export const CameraHUD = ({
           const ctx = canvas.getContext('2d');
           ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-          // 1. Shutter/Pitch Black Check via quick luminance sample
+          // 1. Shutter / Pitch Black Check
           const offCanvas = hiddenCanvasRef.current;
           offCanvas.width = 64;
           offCanvas.height = 48;
@@ -255,10 +291,11 @@ export const CameraHUD = ({
           const avgBrightness = sumL / (64 * 48);
 
           if (avgBrightness < 16) {
-            // Shutter closed or covered camera
             setShutterCovered(true);
             setHumanPresent(false);
+            setMultipleFacesDetected(false);
             setPersonConfidence(0);
+            setGuidanceText('Camera shutter closed');
 
             const cx = vw / 2;
             const cy = vh / 2;
@@ -273,13 +310,42 @@ export const CameraHUD = ({
 
           setShutterCovered(false);
 
-          // 2. Real Deep Neural Network Face Detection & Recognition (ResNet-34 128-d)
-          const result = await extractFaceFeaturesFromInput(video);
+          // 2. Real Deep Neural Network Face Detection & Landmark Extraction
+          const result = await detectFaceWithQuality(video);
 
-          if (!result || !result.isDetected || !result.descriptor) {
-            // NO FACE DETECTED (Empty wall, desk, ceiling, no human)
+          // CASE 2A: Multiple Faces Detected
+          if (result.multipleFaces) {
+            setMultipleFacesDetected(true);
             setHumanPresent(false);
             setPersonConfidence(0);
+            setGuidanceText(`Multiple faces detected (${result.faceCount}) • Only 1 person allowed`);
+
+            const cx = vw / 2;
+            const cy = vh / 2;
+            const boxW = vw * 0.55;
+            const boxH = vh * 0.65;
+
+            ctx.strokeStyle = '#f43f5e';
+            ctx.lineWidth = 3.5;
+            ctx.setLineDash([12, 6]);
+            ctx.strokeRect(cx - boxW / 2, cy - boxH / 2, boxW, boxH);
+
+            ctx.fillStyle = 'rgba(225, 29, 72, 0.9)';
+            ctx.fillRect(cx - 160, cy - boxH / 2 - 32, 320, 26);
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 11px system-ui, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(`MULTIPLE FACES DETECTED (${result.faceCount})`, cx, cy - boxH / 2 - 15);
+            return;
+          }
+
+          setMultipleFacesDetected(false);
+
+          // CASE 2B: No Face Detected (Wall, empty room, ceiling)
+          if (!result.isDetected || !result.descriptor) {
+            setHumanPresent(false);
+            setPersonConfidence(0);
+            setGuidanceText('No face detected • Align face in frame');
 
             const cx = vw / 2;
             const cy = vh / 2;
@@ -300,21 +366,23 @@ export const CameraHUD = ({
             return;
           }
 
-          // 3. HUMAN FACE DETECTED!
+          // CASE 2C: Exactly One Human Face Detected!
           setHumanPresent(true);
           setPersonConfidence(result.score);
+          setGuidanceText(result.guidance);
 
           const { x, y, width, height } = result.box;
+          const isVerified = matchFeedback?.success;
 
-          // Draw Glowing Green Face Box
-          ctx.strokeStyle = matchFeedback?.success ? '#10b981' : '#14b8a6';
+          // Draw Glowing Face Box (Emerald Green if Verified, Teal if Scanning, Amber if Adjusting)
+          ctx.strokeStyle = isVerified ? '#10b981' : result.isGoodQuality ? '#14b8a6' : '#f59e0b';
           ctx.lineWidth = 3.5;
-          ctx.setLineDash([16, 8]);
+          ctx.setLineDash(result.isGoodQuality ? [16, 8] : [8, 8]);
           ctx.strokeRect(x, y, width, height);
 
-          // Draw Corner Accents
+          // Draw High-Tech Corner Accents
           ctx.setLineDash([]);
-          ctx.strokeStyle = matchFeedback?.success ? '#34d399' : '#2dd4bf';
+          ctx.strokeStyle = isVerified ? '#34d399' : result.isGoodQuality ? '#2dd4bf' : '#fbbf24';
           ctx.lineWidth = 4.5;
           const cornerLen = Math.min(24, width * 0.2);
 
@@ -346,9 +414,9 @@ export const CameraHUD = ({
           ctx.lineTo(x + width, y + height - cornerLen);
           ctx.stroke();
 
-          // Draw 68 Real Facial Landmarks
+          // Draw 68 Real Facial Landmarks (Eyes, Eyebrows, Nose, Mouth, Chin)
           if (result.landmarks && result.landmarks.positions) {
-            ctx.fillStyle = matchFeedback?.success ? '#34d399' : '#2dd4bf';
+            ctx.fillStyle = isVerified ? '#34d399' : result.isGoodQuality ? '#2dd4bf' : '#fbbf24';
             const positions = result.landmarks.positions;
             for (let i = 0; i < positions.length; i += 2) {
               const pt = positions[i];
@@ -358,22 +426,30 @@ export const CameraHUD = ({
             }
           }
 
-          // Draw "HUMAN FACE DETECTED" Badge
-          ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
-          ctx.fillRect(x, Math.max(10, y - 28), Math.max(180, width), 24);
-          ctx.fillStyle = matchFeedback?.success ? '#34d399' : '#2dd4bf';
+          // Draw Identification / Guidance Badge on Canvas
+          const badgeText = isVerified
+            ? matchFeedback?.title || 'IDENTITY VERIFIED'
+            : result.isGoodQuality
+            ? `FACE DETECTED • ${result.score}% QUALITY`
+            : result.guidance.toUpperCase();
+
+          const badgeW = Math.max(190, width);
+          ctx.fillStyle = isVerified ? 'rgba(6, 78, 59, 0.95)' : result.isGoodQuality ? 'rgba(15, 23, 42, 0.92)' : 'rgba(120, 53, 15, 0.92)';
+          ctx.fillRect(x, Math.max(10, y - 30), badgeW, 26);
+          ctx.fillStyle = isVerified ? '#34d399' : result.isGoodQuality ? '#2dd4bf' : '#fbbf24';
           ctx.font = 'bold 11px system-ui, sans-serif';
           ctx.textAlign = 'left';
-          ctx.fillText(`HUMAN FACE • ${result.score}% ACCURACY`, x + 8, Math.max(10, y - 28) + 16);
+          ctx.fillText(badgeText, x + 8, Math.max(10, y - 30) + 17);
 
-          // Emit face descriptor
-          if (onFaceDetected && result.descriptor) {
+          // Emit face descriptor when quality is good
+          if (onFaceDetected && result.descriptor && result.isGoodQuality) {
             onFaceDetected({
               embedding: result.descriptor,
               livenessVerified: true,
               timestamp: Date.now(),
               brightness: Math.round(avgBrightness),
               personConfidence: result.score,
+              guidance: result.guidance,
             });
           }
         } catch (err) {
@@ -381,7 +457,7 @@ export const CameraHUD = ({
         } finally {
           isAnalyzingRef.current = false;
         }
-      }, 350);
+      }, 300);
     }
 
     return () => {
@@ -424,7 +500,7 @@ export const CameraHUD = ({
         />
 
         {/* Scanning Laser Line */}
-        {cameraStatus === 'active' && modelStatus === 'ready' && scanning && !shutterCovered && humanPresent && (
+        {cameraStatus === 'active' && modelStatus === 'ready' && scanning && !shutterCovered && humanPresent && !multipleFacesDetected && (
           <div className="absolute inset-x-8 h-1 bg-gradient-to-r from-transparent via-teal-400 to-transparent shadow-lg shadow-teal-500/50 scanner-laser pointer-events-none" />
         )}
 
@@ -436,6 +512,21 @@ export const CameraHUD = ({
               <h4 className="text-sm font-bold text-white font-outfit">Loading Deep Face-API AI Neural Network...</h4>
               <p className="text-xs text-slate-400 mt-1 max-w-xs">
                 Initializing 128-d ResNet-34 Face Recognition & 68 Landmark Models for high-accuracy biometric matching
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Multiple Faces Detected Overlay Alert */}
+        {multipleFacesDetected && (
+          <div className="absolute inset-0 bg-rose-950/80 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center space-y-3 z-20">
+            <div className="w-12 h-12 rounded-full bg-rose-500/20 text-rose-400 flex items-center justify-center border border-rose-500/40 animate-pulse">
+              <Users className="w-6 h-6" />
+            </div>
+            <div>
+              <h4 className="text-sm font-bold text-white font-outfit">Multiple Faces Detected</h4>
+              <p className="text-xs text-rose-300 mt-1 max-w-xs">
+                Only one person is permitted in the camera view during attendance authentication. Please ensure only the student being verified is visible.
               </p>
             </div>
           </div>
@@ -516,6 +607,10 @@ export const CameraHUD = ({
             <div className="p-2 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/30">
               <CameraOff className="w-4 h-4" />
             </div>
+          ) : multipleFacesDetected ? (
+            <div className="p-2 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/30 animate-pulse">
+              <Users className="w-4 h-4" />
+            </div>
           ) : humanPresent ? (
             <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 animate-pulse">
               <UserCheck className="w-4 h-4" />
@@ -531,6 +626,8 @@ export const CameraHUD = ({
               <span>
                 {shutterCovered
                   ? 'Camera Shutter Closed'
+                  : multipleFacesDetected
+                  ? 'Multiple Faces Detected'
                   : matchFeedback?.title || (humanPresent ? `Human Face Detected (${personConfidence}%)` : 'Align Face in Frame')}
               </span>
               {humanPresent && (
@@ -542,12 +639,25 @@ export const CameraHUD = ({
             <div className="text-[11px] text-slate-400">
               {shutterCovered
                 ? 'Open camera shutter or remove lens cover'
-                : matchFeedback?.subtitle || (humanPresent ? 'Face recognized by AI neural network' : 'Please look directly into camera')}
+                : multipleFacesDetected
+                ? 'Only 1 person allowed in frame'
+                : matchFeedback?.subtitle || (humanPresent ? guidanceText : 'Please look directly into camera')}
             </div>
           </div>
         </div>
 
         <div className="flex items-center gap-2 self-end sm:self-auto">
+          {/* Camera Restart Button */}
+          <button
+            type="button"
+            onClick={handleRestartCamera}
+            className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors"
+            title="Restart Camera"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+          </button>
+
+          {/* Snap Face Button */}
           <button
             type="button"
             onClick={handleManualCapture}
@@ -562,6 +672,7 @@ export const CameraHUD = ({
             <span>Snap Face</span>
           </button>
 
+          {/* Upload Photo Fallback Button */}
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}

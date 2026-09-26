@@ -52,9 +52,17 @@ export const markFaceAttendance = async (req, res, next) => {
     // Match against biometric embeddings stored in database for this classroom
     const matchResult = await matchFaceAgainstCandidates(facialEmbedding, eligibleStudentIds);
     if (!matchResult.matchedUserId) {
+      if (matchResult.isAmbiguous) {
+        return res.status(409).json({
+          success: false,
+          status: 'ambiguous',
+          message: matchResult.message || 'Ambiguous Face Match – Identity uncertain between multiple candidates.',
+        });
+      }
       return res.status(404).json({
         success: false,
-        message: 'Face not recognized. Student is not enrolled or face does not match any student in this classroom.',
+        status: 'unknown_face',
+        message: 'Unknown Face – Please Register or Try Again.',
       });
     }
 
