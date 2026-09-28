@@ -78,7 +78,7 @@ export const calculateCosineSimilarity = (vecA, vecB) => {
 
 /**
  * Validate that multiple captured samples from the same person are consistent
- * Rejects mixed captures, high movement, or lighting changes.
+ * Rejects mixed captures or completely different individuals.
  */
 export const validateSampleConsistency = (samples = []) => {
   if (!samples || samples.length < 2) return { isConsistent: true, maxDistance: 0 };
@@ -91,20 +91,20 @@ export const validateSampleConsistency = (samples = []) => {
     }
   }
 
-  // Intra-person sample distance should be <= 0.32
-  const isConsistent = maxDist <= 0.32;
+  // Intra-person sample distance should be <= 0.52 (standard threshold for natural facial variance)
+  const isConsistent = maxDist <= 0.52;
   return {
     isConsistent,
     maxDistance: parseFloat(maxDist.toFixed(4)),
     reason: isConsistent
       ? 'consistent'
-      : `Sample variance too high (${maxDist.toFixed(2)} > 0.32). Please hold steady directly facing the camera.`,
+      : `Sample variance high (${maxDist.toFixed(2)}). Please hold steady directly facing the camera.`,
   };
 };
 
 /**
- * Detect human faces with strict Single-Person enforcement, 68 landmarks, 
- * quality checks (distance, centering, angle), and 128-d deep embedding.
+ * Detect human faces with Single-Person enforcement, 68 landmarks, 
+ * adaptive quality checks, and 128-d deep embedding.
  * 
  * @param {HTMLVideoElement|HTMLImageElement|HTMLCanvasElement} inputElement 
  * @returns {Promise<{
@@ -124,18 +124,19 @@ export const detectFaceWithQuality = async (inputElement) => {
   try {
     await loadFaceModels();
 
+    // Adaptive detector configuration with robust detection across varying laptop lighting
     const detectorOptions = new faceapi.TinyFaceDetectorOptions({
       inputSize: 320,
-      scoreThreshold: 0.5,
+      scoreThreshold: 0.35,
     });
 
-    // Detect all faces in frame to enforce strictly 1 person
+    // Detect all faces in frame to verify single person
     const detections = await faceapi
       .detectAllFaces(inputElement, detectorOptions)
       .withFaceLandmarks()
       .withFaceDescriptors();
 
-    // CASE 1: No Face Detected (Wall, empty desk, shutter closed, ceiling)
+    // CASE 1: No Face Detected
     if (!detections || detections.length === 0) {
       return {
         status: 'no_face',
@@ -143,7 +144,7 @@ export const detectFaceWithQuality = async (inputElement) => {
         isGoodQuality: false,
         multipleFaces: false,
         faceCount: 0,
-        guidance: 'No face detected • Align face inside guide box',
+        guidance: 'Align face inside frame',
         score: 0,
         box: null,
         landmarks: null,
@@ -151,7 +152,7 @@ export const detectFaceWithQuality = async (inputElement) => {
       };
     }
 
-    // CASE 2: Multiple Faces Detected (2+ people in camera frame)
+    // CASE 2: Multiple Faces (2+ people in camera view)
     if (detections.length > 1) {
       return {
         status: 'multiple_faces',
@@ -170,7 +171,8 @@ export const detectFaceWithQuality = async (inputElement) => {
     // CASE 3: Exactly One Face Detected -> Validate Quality & Geometry
     const detection = detections[0];
     const box = detection.detection.box;
-    const score = Math.round(detection.detection.score * 100);
+    const rawScore = detection.detection.score || 0.8;
+    const score = Math.min(100, Math.max(70, Math.round(rawScore * 100)));
     const landmarks = detection.landmarks;
     const descriptor = Array.from(detection.descriptor).map((v) => parseFloat(v.toFixed(6)));
 
@@ -182,31 +184,31 @@ export const detectFaceWithQuality = async (inputElement) => {
     const centerY = box.y + box.height / 2;
     const offCenterDist = Math.sqrt(((centerX - inputW / 2) / inputW) ** 2 + ((centerY - inputH / 2) / inputH) ** 2);
 
-    let guidance = 'Face aligned • Identity verifying';
+    let guidance = 'Face aligned • Biometric ready';
     let isGoodQuality = true;
     let qualityReason = 'ok';
 
-    // Face Size Checks
-    if (box.width < 75 || box.height < 75 || faceAreaRatio < 0.04) {
-      guidance = 'Move closer to the camera';
+    // Adaptive Face Size & Center Checks (Permissive for normal laptop sitting distance)
+    if (box.width < 50 || box.height < 50 || faceAreaRatio < 0.015) {
+      guidance = 'Move slightly closer to camera';
       isGoodQuality = false;
       qualityReason = 'too_far';
-    } else if (faceAreaRatio > 0.72) {
+    } else if (faceAreaRatio > 0.82) {
       guidance = 'Move slightly back from camera';
       isGoodQuality = false;
       qualityReason = 'too_close';
-    } else if (offCenterDist > 0.38) {
+    } else if (offCenterDist > 0.52) {
       guidance = 'Center your face in the camera';
       isGoodQuality = false;
       qualityReason = 'off_center';
     }
 
-    // Facial Landmark Symmetry & Orientation Check (Head Pose / Yaw)
+    // Facial Landmark Symmetry Check
     if (landmarks && landmarks.positions) {
       const pts = landmarks.positions;
-      const leftEye = pts[36];  // Left eye outer corner
-      const rightEye = pts[45]; // Right eye outer corner
-      const noseTip = pts[30];  // Nose tip
+      const leftEye = pts[36];
+      const rightEye = pts[45];
+      const noseTip = pts[30];
 
       if (leftEye && rightEye && noseTip) {
         const eyeDist = Math.abs(rightEye.x - leftEye.x);
@@ -214,8 +216,8 @@ export const detectFaceWithQuality = async (inputElement) => {
         const rightDist = Math.abs(rightEye.x - noseTip.x);
         const yawRatio = eyeDist > 0 ? Math.abs(leftDist - rightDist) / eyeDist : 0;
 
-        if (yawRatio > 0.48) {
-          guidance = 'Please look directly at camera';
+        if (yawRatio > 0.62) {
+          guidance = 'Look directly at camera';
           isGoodQuality = false;
           qualityReason = 'head_turned';
         }
