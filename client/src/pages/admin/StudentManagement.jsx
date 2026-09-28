@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import apiClient from '../../api/client';
 import Modal from '../../components/common/Modal';
 import CameraHUD, { playSuccessChime } from '../../components/face/CameraHUD';
-import { validateSampleConsistency } from '../../services/faceApiService';
+import { validateSampleConsistency, detectFaceWithQuality } from '../../services/faceApiService';
 import {
   GraduationCap,
   UserPlus,
@@ -20,6 +20,9 @@ import {
   Check,
   AlertCircle,
   RefreshCw,
+  Upload,
+  Image as ImageIcon,
+  CheckCircle2,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -30,9 +33,15 @@ export const StudentManagement = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedClassroomId, setSelectedClassroomId] = useState('');
 
-  // Combined Student Registration + Live Camera Face Enrollment Modal
+  // Combined Student Registration + Face Enrollment Modal
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [addStep, setAddStep] = useState('details'); // 'details' | 'camera' | 'success'
+  const [captureTab, setCaptureTab] = useState('camera'); // 'camera' | 'upload'
+  const [uploadedImagePreview, setUploadedImagePreview] = useState(null);
+  const [uploadQualityResult, setUploadQualityResult] = useState(null);
+  const [isAnalyzingPhoto, setIsAnalyzingPhoto] = useState(false);
+  const photoInputRef = useRef(null);
+
   const [formData, setFormData] = useState({
     userId: '',
     name: '',
@@ -211,11 +220,90 @@ export const StudentManagement = () => {
     }
   };
 
+  const handleSelectPhoto = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsAnalyzingPhoto(true);
+    setError('');
+    setUploadQualityResult(null);
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const imgDataUrl = event.target.result;
+      setUploadedImagePreview(imgDataUrl);
+
+      const img = new Image();
+      img.onload = async () => {
+        try {
+          const result = await detectFaceWithQuality(img);
+          if (result && result.isDetected && result.descriptor) {
+            setUploadQualityResult(result);
+            setCapturedEmbedding(result.descriptor);
+          } else if (result.multipleFaces) {
+            setError(`Multiple faces detected (${result.faceCount}). Please upload a photo with only 1 person.`);
+            setUploadQualityResult(null);
+          } else {
+            setError('No clear human face detected in photo. Please upload a clear portrait photo.');
+            setUploadQualityResult(null);
+          }
+        } catch (err) {
+          setError('Error analyzing face in photo: ' + (err.message || 'Unknown error'));
+        } finally {
+          setIsAnalyzingPhoto(false);
+        }
+      };
+      img.onerror = () => {
+        setError('Failed to load image file.');
+        setIsAnalyzingPhoto(false);
+      };
+      img.src = imgDataUrl;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleEnrollFromPhoto = async (forceOverride = false) => {
+    if (!uploadQualityResult?.descriptor && !capturedEmbedding) {
+      setError('Please select a photo with a detected face first.');
+      return;
+    }
+    const descriptorToSave = uploadQualityResult?.descriptor || capturedEmbedding;
+    const targetUser = createdStudent || reEnrollStudent;
+    if (!targetUser) return;
+
+    setSaving(true);
+    setError('');
+    try {
+      const res = await apiClient.post('/face/enroll', {
+        userId: targetUser._id,
+        facialEmbedding: descriptorToSave,
+        biometricConsent: true,
+        imageQualityScore: (uploadQualityResult?.score || 95) / 100,
+        forceOverride,
+      });
+      if (res.data.success) {
+        playSuccessChime();
+        confetti({ particleCount: 60, spread: 70, origin: { y: 0.6 } });
+        setAddStep('success');
+        fetchData();
+      } else {
+        setError(res.data.message || 'Face enrollment failed.');
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || 'Error saving face embedding.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleOpenReEnroll = (student) => {
     setReEnrollStudent(student);
     setCreatedStudent(student);
     setCapturedSamples(0);
     setCapturedEmbedding(null);
+    setUploadedImagePreview(null);
+    setUploadQualityResult(null);
+    setCaptureTab('camera');
     setAddStep('camera');
     setError('');
     setIsAddModalOpen(true);
@@ -583,33 +671,165 @@ export const StudentManagement = () => {
           </form>
         )}
 
-        {/* Step 2: Live Camera Face Capture */}
+        {/* Step 2: Live Camera & Photo Face Enrollment */}
         {addStep === 'camera' && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between px-1">
-              <span className="text-xs text-slate-300 font-medium">
-                Capturing Face Samples: <span className="text-teal-400 font-bold font-mono">{capturedSamples} / 3</span>
-              </span>
-              <span className="text-[11px] text-slate-400">Ask student to look at camera</span>
+            {/* Dual Capture Method Switcher */}
+            <div className="flex items-center p-1 bg-slate-900 border border-slate-800 rounded-2xl gap-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setCaptureTab('camera');
+                  setError('');
+                }}
+                className={`flex-1 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
+                  captureTab === 'camera'
+                    ? 'bg-teal-500 text-slate-950 shadow-md shadow-teal-500/20'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+                }`}
+              >
+                <Camera className="w-3.5 h-3.5" />
+                <span>Live Camera Stream</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setCaptureTab('upload');
+                  setError('');
+                }}
+                className={`flex-1 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${
+                  captureTab === 'upload'
+                    ? 'bg-teal-500 text-slate-950 shadow-md shadow-teal-500/20'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+                }`}
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>Upload Face Photo</span>
+              </button>
             </div>
 
-            <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
-              <div
-                className="bg-teal-400 h-1.5 transition-all duration-300"
-                style={{ width: `${(capturedSamples / 3) * 100}%` }}
-              />
-            </div>
+            {/* TAB 1: Live Webcam Stream */}
+            {captureTab === 'camera' && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between px-1">
+                  <span className="text-xs text-slate-300 font-medium">
+                    Capturing Face Samples: <span className="text-teal-400 font-bold font-mono">{capturedSamples} / 3</span>
+                  </span>
+                  <span className="text-[11px] text-slate-400">Ask student to look directly into camera</span>
+                </div>
 
-            <CameraHUD
-              active={isAddModalOpen && addStep === 'camera'}
-              scanning={true}
-              onFaceDetected={handleFaceSampleCaptured}
-              matchFeedback={{
-                success: capturedSamples === 3,
-                title: capturedSamples === 3 ? 'Biometric Embedding Generated!' : 'Position face inside camera box',
-                subtitle: capturedSamples < 3 ? 'Sampling facial landmark points...' : 'Writing 128-d descriptor to cloud...',
-              }}
-            />
+                <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                  <div
+                    className="bg-teal-400 h-1.5 transition-all duration-300"
+                    style={{ width: `${(capturedSamples / 3) * 100}%` }}
+                  />
+                </div>
+
+                <CameraHUD
+                  active={isAddModalOpen && addStep === 'camera' && captureTab === 'camera'}
+                  scanning={true}
+                  onFaceDetected={handleFaceSampleCaptured}
+                  matchFeedback={{
+                    success: capturedSamples === 3,
+                    title: capturedSamples === 3 ? 'Biometric Embedding Generated!' : 'Position face inside camera box',
+                    subtitle: capturedSamples < 3 ? 'Sampling facial landmark points...' : 'Writing 128-d descriptor to cloud...',
+                  }}
+                />
+              </div>
+            )}
+
+            {/* TAB 2: Upload Portrait Photo */}
+            {captureTab === 'upload' && (
+              <div className="space-y-3">
+                <input
+                  type="file"
+                  ref={photoInputRef}
+                  accept="image/*"
+                  onChange={handleSelectPhoto}
+                  className="hidden"
+                />
+
+                {!uploadedImagePreview ? (
+                  <div
+                    onClick={() => photoInputRef.current?.click()}
+                    className="cursor-pointer border-2 border-dashed border-slate-700 hover:border-teal-500/60 bg-slate-950/60 rounded-3xl p-8 text-center space-y-3 transition-all group"
+                  >
+                    <div className="w-14 h-14 rounded-2xl bg-teal-500/10 group-hover:bg-teal-500/20 text-teal-400 flex items-center justify-center mx-auto border border-teal-500/30 transition-colors">
+                      <ImageIcon className="w-7 h-7" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-white font-outfit">Select Student Portrait Photo</h4>
+                      <p className="text-xs text-slate-400 mt-1 max-w-xs mx-auto">
+                        Click to browse or drop an image file (JPG, PNG, WEBP). AI will automatically detect face landmarks & generate biometric vectors.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="px-4 py-2 rounded-xl bg-teal-500 hover:bg-teal-600 text-slate-950 text-xs font-bold shadow-md shadow-teal-500/20 transition-all"
+                    >
+                      Browse Files
+                    </button>
+                  </div>
+                ) : (
+                  <div className="p-4 rounded-3xl bg-slate-950 border border-slate-800 space-y-4">
+                    <div className="flex flex-col sm:flex-row items-center gap-4">
+                      <div className="relative w-36 h-36 rounded-2xl overflow-hidden bg-black shrink-0 border border-slate-700">
+                        <img
+                          src={uploadedImagePreview}
+                          alt="Student Face Preview"
+                          className="w-full h-full object-cover"
+                        />
+                        {isAnalyzingPhoto && (
+                          <div className="absolute inset-0 bg-black/75 backdrop-blur-xs flex flex-col items-center justify-center text-teal-400 text-xs gap-1">
+                            <RefreshCw className="w-5 h-5 animate-spin" />
+                            <span>Analyzing...</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="space-y-2 flex-1 text-left">
+                        {uploadQualityResult ? (
+                          <>
+                            <div className="flex items-center gap-2">
+                              <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1.5">
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                {uploadQualityResult.score}% Quality Face Detected
+                              </span>
+                            </div>
+                            <p className="text-xs text-slate-300">
+                              {uploadQualityResult.guidance || 'High-accuracy 128-d biometric descriptor generated.'}
+                            </p>
+                          </>
+                        ) : isAnalyzingPhoto ? (
+                          <p className="text-xs text-teal-300">Running deep face detection neural network...</p>
+                        ) : (
+                          <p className="text-xs text-amber-300">{error || 'Please choose another photo with a clear frontal face view.'}</p>
+                        )}
+
+                        <div className="pt-2 flex items-center gap-2 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => handleEnrollFromPhoto(false)}
+                            disabled={!uploadQualityResult || saving}
+                            className="px-4 py-2 rounded-xl bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-600 hover:to-emerald-700 text-slate-950 font-bold text-xs shadow-md shadow-teal-500/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 transition-all"
+                          >
+                            <Sparkles className="w-3.5 h-3.5" />
+                            <span>Save Biometric Face Profile</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => photoInputRef.current?.click()}
+                            className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold border border-slate-700"
+                          >
+                            Change Photo
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {saving && (
               <div className="flex items-center justify-center gap-2 p-3 text-xs text-teal-300 bg-teal-950/60 rounded-xl border border-teal-500/30">
@@ -628,7 +848,7 @@ export const StudentManagement = () => {
                   {capturedEmbedding && (
                     <button
                       type="button"
-                      onClick={handleForceEnroll}
+                      onClick={() => (captureTab === 'upload' ? handleEnrollFromPhoto(true) : handleForceEnroll())}
                       disabled={saving}
                       className="px-3.5 py-1.5 rounded-xl bg-teal-500 hover:bg-teal-600 text-slate-950 font-bold text-xs transition-all shadow-md shadow-teal-500/20 flex items-center gap-1.5"
                     >
@@ -645,7 +865,7 @@ export const StudentManagement = () => {
                     }}
                     className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold"
                   >
-                    Retry Camera Sampling
+                    Reset & Retry
                   </button>
                 </div>
               </div>
