@@ -216,90 +216,12 @@ export const StudentManagement = () => {
     }
   };
 
-  const handleSelectPhoto = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setIsAnalyzingPhoto(true);
-    setError('');
-    setUploadQualityResult(null);
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const imgDataUrl = event.target.result;
-      setUploadedImagePreview(imgDataUrl);
-
-      const img = new Image();
-      img.onload = async () => {
-        try {
-          const result = await detectFaceWithQuality(img);
-          if (result && result.isDetected && result.descriptor) {
-            setUploadQualityResult(result);
-            setCapturedEmbedding(result.descriptor);
-          } else if (result.multipleFaces) {
-            setError(`Multiple faces detected (${result.faceCount}). Please upload a photo with only 1 person.`);
-            setUploadQualityResult(null);
-          } else {
-            setError('No clear human face detected in photo. Please upload a clear portrait photo.');
-            setUploadQualityResult(null);
-          }
-        } catch (err) {
-          setError('Error analyzing face in photo: ' + (err.message || 'Unknown error'));
-        } finally {
-          setIsAnalyzingPhoto(false);
-        }
-      };
-      img.onerror = () => {
-        setError('Failed to load image file.');
-        setIsAnalyzingPhoto(false);
-      };
-      img.src = imgDataUrl;
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleEnrollFromPhoto = async (forceOverride = false) => {
-    if (!uploadQualityResult?.descriptor && !capturedEmbedding) {
-      setError('Please select a photo with a detected face first.');
-      return;
-    }
-    const descriptorToSave = uploadQualityResult?.descriptor || capturedEmbedding;
-    const targetUser = createdStudent || reEnrollStudent;
-    if (!targetUser) return;
-
-    setSaving(true);
-    setError('');
-    try {
-      const res = await apiClient.post('/face/enroll', {
-        userId: targetUser._id,
-        facialEmbedding: descriptorToSave,
-        biometricConsent: true,
-        imageQualityScore: (uploadQualityResult?.score || 95) / 100,
-        forceOverride,
-      });
-      if (res.data.success) {
-        playSuccessChime();
-        confetti({ particleCount: 60, spread: 70, origin: { y: 0.6 } });
-        setAddStep('success');
-        fetchData();
-      } else {
-        setError(res.data.message || 'Face enrollment failed.');
-      }
-    } catch (err) {
-      setError(err.response?.data?.message || 'Error saving face embedding.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const handleOpenReEnroll = (student) => {
+    adminSamplesRef.current = [];
     setReEnrollStudent(student);
     setCreatedStudent(student);
     setCapturedSamples(0);
     setCapturedEmbedding(null);
-    setUploadedImagePreview(null);
-    setUploadQualityResult(null);
-    setCaptureTab('camera');
     setAddStep('camera');
     setError('');
     setIsAddModalOpen(true);
