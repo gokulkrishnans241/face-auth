@@ -326,6 +326,17 @@ export const StudentManagement = () => {
 
           <button
             type="button"
+            onClick={fetchData}
+            disabled={loading}
+            className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 text-xs font-semibold transition-all flex items-center gap-1.5"
+            title="Refresh student roster"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-teal-400' : ''}`} />
+            <span>Refresh</span>
+          </button>
+
+          <button
+            type="button"
             onClick={handleResetAllBiometrics}
             className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 border border-slate-800 hover:border-rose-500/30 text-xs font-semibold transition-all flex items-center gap-1.5"
             title="Purge all stored facial profiles to start fresh"

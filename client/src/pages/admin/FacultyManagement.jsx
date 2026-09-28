@@ -312,6 +312,17 @@ export const FacultyManagement = () => {
           </div>
 
           <button
+            type="button"
+            onClick={fetchData}
+            disabled={loading}
+            className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 text-xs font-semibold transition-all flex items-center gap-1.5"
+            title="Refresh faculty directory"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-teal-400' : ''}`} />
+            <span>Refresh</span>
+          </button>
+
+          <button
             onClick={handleOpenAdd}
             className="px-4 py-2 rounded-xl bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-600 hover:to-emerald-700 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition-all shadow-lg shadow-teal-500/20"
           >

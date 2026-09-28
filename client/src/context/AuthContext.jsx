@@ -22,8 +22,12 @@ export const AuthProvider = ({ children }) => {
             localStorage.setItem('smart_attendance_user', JSON.stringify(res.data.user));
           }
         } catch (err) {
-          console.warn('Session verification failed, logging out:', err);
-          logout();
+          console.warn('Session verification warning:', err);
+          // Only log out if the server explicitly reports that the token is invalid/expired (401/403)
+          // Preserves session during server cold starts or temporary network glitches
+          if (err.response?.status === 401 || err.response?.status === 403) {
+            logout();
+          }
         }
       }
       setLoading(false);
