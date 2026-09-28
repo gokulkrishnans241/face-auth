@@ -147,33 +147,104 @@ export const CameraHUD = ({
   }, []);
 
   // Stream acquisition with instant universal fallback (no premature timeout abortions)
+  // Multi-Strategy Stream Acquisition for Windows/macOS/Mobile
   const acquireStream = async (modeToUse, deviceIdToUse) => {
+    // 1. Mobile logic
     if (isMobile) {
       try {
         return await navigator.mediaDevices.getUserMedia({
           video: { facingMode: modeToUse ? { ideal: modeToUse } : 'user' },
           audio: false,
         });
-      } catch (e1) {
-        console.warn('Mobile facingMode failed, falling back to basic video: true', e1);
+      } catch (eMobile) {
+        console.warn('Mobile facingMode failed, falling back to basic video', eMobile);
         return await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
       }
     }
 
-    // Laptop / Desktop: If specific device requested, attempt ideal deviceId
+    // 2. Desktop/Laptop: Explicit Device ID requested
     if (deviceIdToUse) {
       try {
         return await navigator.mediaDevices.getUserMedia({
-          video: { deviceId: { ideal: deviceIdToUse } },
+          video: { deviceId: { exact: deviceIdToUse } },
           audio: false,
         });
-      } catch (e2) {
-        console.warn('DeviceId request failed, falling back to universal stream', e2);
+      } catch (eExact) {
+        try {
+          return await navigator.mediaDevices.getUserMedia({
+            video: { deviceId: { ideal: deviceIdToUse } },
+            audio: false,
+          });
+        } catch (eIdeal) {
+          console.warn('DeviceId request failed, falling back to standard profile ladder', eIdeal);
+        }
       }
     }
 
-    // Universal default: Basic video stream (instant connection on all laptop webcams)
-    return await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    // 3. Laptop Webcams - Progressive Strategy Ladder (Fixes 'Timeout starting video source')
+    const strategies = [
+      // Strategy 1: Standard VGA (640x480) - Most compatible with Windows DirectShow & MediaFoundation drivers
+      {
+        name: 'VGA 640x480 (Optimal)',
+        constraints: {
+          video: {
+            width: { ideal: 640, max: 1280 },
+            height: { ideal: 480, max: 720 },
+            frameRate: { ideal: 30, max: 30 },
+          },
+          audio: false,
+        },
+      },
+      // Strategy 2: High-Def (1280x720)
+      {
+        name: 'HD 720p',
+        constraints: {
+          video: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+          audio: false,
+        },
+      },
+      // Strategy 3: Pure Unconstrained Stream
+      {
+        name: 'Unconstrained Basic',
+        constraints: {
+          video: true,
+          audio: false,
+        },
+      },
+      // Strategy 4: Low-Res Fallback (320x240)
+      {
+        name: 'Low-Res Safe Mode',
+        constraints: {
+          video: {
+            width: { ideal: 320 },
+            height: { ideal: 240 },
+          },
+          audio: false,
+        },
+      },
+    ];
+
+    let lastError = null;
+    for (const strat of strategies) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia(strat.constraints);
+        if (stream) return stream;
+      } catch (err) {
+        lastError = err;
+        console.warn(`Camera strategy ${strat.name} failed:`, err?.name || err?.message);
+        // If permission explicitly denied by user, don't keep polling
+        if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+          throw err;
+        }
+        // Small delay before next strategy to let OS camera driver cycle
+        await new Promise((r) => setTimeout(r, 100));
+      }
+    }
+
+    throw lastError || new Error('All camera connection profiles timed out.');
   };
 
   // Start Camera with Multi-Tier Fallback
@@ -182,7 +253,7 @@ export const CameraHUD = ({
       stopCamera();
 
       // Brief delay to allow Windows / macOS kernel to release webcam hardware lock
-      await new Promise((resolve) => setTimeout(resolve, 150));
+      await new Promise((resolve) => setTimeout(resolve, 200));
 
       setCameraStatus('initializing');
       setErrorMessage('');
@@ -236,18 +307,26 @@ export const CameraHUD = ({
         }
       } catch (err) {
         console.error('Camera initialization error:', err);
-        setCameraStatus(
-          err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError'
-            ? 'denied'
-            : 'error'
-        );
-        setErrorMessage(
-          err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError'
-            ? 'Camera permission denied. Please click the camera/lock icon in your browser address bar and allow camera access.'
-            : err.name === 'NotReadableError' || err.name === 'TrackStartError'
-            ? 'Camera is currently locked by another application (e.g. Zoom, Teams, or another tab). Please close other camera programs and click Quick Reload.'
-            : err.message || 'Unable to connect to camera video feed.'
-        );
+        const isDenied = err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError';
+        const isTimeoutOrLocked =
+          err.name === 'NotReadableError' ||
+          err.name === 'TrackStartError' ||
+          err.name === 'AbortError' ||
+          (err.message && err.message.toLowerCase().includes('timeout'));
+
+        setCameraStatus(isDenied ? 'denied' : 'error');
+
+        if (isDenied) {
+          setErrorMessage(
+            'Camera permission blocked in browser. Click the lock/camera icon next to the URL address bar and change Camera to "Allow".'
+          );
+        } else if (isTimeoutOrLocked) {
+          setErrorMessage(
+            'Laptop webcam hardware timed out or is locked by another application (e.g. Zoom, Teams, Camera App, or another tab). Close other camera apps and click "Reset & Retry".'
+          );
+        } else {
+          setErrorMessage(err.message || 'Unable to connect to camera video feed.');
+        }
       }
     },
     [facingMode, selectedDeviceId, isMobile, stopCamera, updateDeviceList]
@@ -768,24 +847,42 @@ export const CameraHUD = ({
 
         {/* Error State */}
         {cameraStatus === 'error' && (
-          <div className="absolute inset-0 bg-slate-950/95 flex flex-col items-center justify-center p-6 text-center space-y-3">
-            <ShieldAlert className="w-8 h-8 text-amber-400" />
-            <div>
-              <h4 className="text-sm font-bold text-white">Camera Stream Paused</h4>
-              <p className="text-xs text-slate-400 mt-1 max-w-xs">{errorMessage}</p>
+          <div className="absolute inset-0 bg-slate-950/95 flex flex-col items-center justify-center p-5 text-center space-y-3 z-20 overflow-y-auto">
+            <div className="w-11 h-11 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-500/30 shrink-0">
+              <ShieldAlert className="w-6 h-6" />
             </div>
-            <div className="flex gap-2">
+            <div>
+              <h4 className="text-sm font-bold text-white font-outfit">Webcam Connection Issue</h4>
+              <p className="text-xs text-amber-200/90 mt-1 max-w-sm font-medium">{errorMessage}</p>
+            </div>
+
+            {/* Diagnostic Tips Card */}
+            <div className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 text-[11px] text-slate-300 max-w-sm text-left space-y-1">
+              <div className="font-semibold text-teal-400 flex items-center gap-1">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                <span>Quick Diagnostic Checklist:</span>
+              </div>
+              <ul className="list-disc pl-4 space-y-0.5 text-slate-400 text-[10.5px]">
+                <li>Close Zoom, Teams, Meet, or Windows Camera app</li>
+                <li>Check physical webcam privacy slider or Fn toggle (Fn+F10)</li>
+                <li>Ensure browser site permissions have Camera set to Allow</li>
+              </ul>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
               <button
+                type="button"
                 onClick={handleReloadCamera}
-                className="px-4 py-2 rounded-xl bg-teal-500 hover:bg-teal-600 text-slate-950 text-xs font-bold flex items-center gap-1.5"
+                className="px-4 py-2 rounded-xl bg-teal-500 hover:bg-teal-600 text-slate-950 text-xs font-bold flex items-center gap-1.5 shadow-md shadow-teal-500/20 transition-all"
               >
-                <RefreshCw className="w-3.5 h-3.5" /> Quick Reload
+                <RefreshCw className="w-3.5 h-3.5" /> Reset & Retry Camera
               </button>
               <button
+                type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 flex items-center gap-1.5"
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 flex items-center gap-1.5 transition-all"
               >
-                <Upload className="w-3.5 h-3.5" /> Upload Photo
+                <Upload className="w-3.5 h-3.5" /> Upload Photo Instead
               </button>
             </div>
           </div>
