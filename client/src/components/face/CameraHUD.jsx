@@ -98,18 +98,10 @@ export const CameraHUD = ({
       const devices = await navigator.mediaDevices.enumerateDevices();
       const videoInputs = devices.filter((d) => d.kind === 'videoinput');
       setAvailableDevices(videoInputs);
-
-      // Select first non-IR camera if none selected
-      if (!selectedDeviceId && videoInputs.length > 0) {
-        const nonIR = videoInputs.find(
-          (d) => !/ir|infrared|depth/i.test(d.label || '')
-        );
-        setSelectedDeviceId((nonIR || videoInputs[0]).deviceId);
-      }
     } catch (e) {
       console.warn('Device enumeration warning:', e);
     }
-  }, [selectedDeviceId]);
+  }, []);
 
   useEffect(() => {
     updateDeviceList();
@@ -154,71 +146,34 @@ export const CameraHUD = ({
     }
   }, []);
 
-  // Safe getUserMedia with bounded watchdog per tier to prevent driver hangs on laptop webcams
+  // Stream acquisition with instant universal fallback (no premature timeout abortions)
   const acquireStream = async (modeToUse, deviceIdToUse) => {
-    const tryGetUserMedia = (constraints, ms = 3500) => {
-      return new Promise(async (resolve, reject) => {
-        let isSettled = false;
-        const timer = setTimeout(() => {
-          if (!isSettled) {
-            isSettled = true;
-            reject(new Error('Hardware negotiation timeout'));
-          }
-        }, ms);
-
-        try {
-          const s = await navigator.mediaDevices.getUserMedia(constraints);
-          if (!isSettled) {
-            isSettled = true;
-            clearTimeout(timer);
-            resolve(s);
-          } else {
-            // If settled after timeout, release late stream tracks
-            s.getTracks().forEach((t) => {
-              try { t.stop(); } catch (_) {}
-            });
-          }
-        } catch (err) {
-          if (!isSettled) {
-            isSettled = true;
-            clearTimeout(timer);
-            reject(err);
-          }
-        }
-      });
-    };
-
     if (isMobile) {
       try {
-        return await tryGetUserMedia({
+        return await navigator.mediaDevices.getUserMedia({
           video: { facingMode: modeToUse ? { ideal: modeToUse } : 'user' },
           audio: false,
-        }, 3500);
+        });
       } catch (e1) {
-        console.warn('Mobile Tier 1 failed, trying basic video: true', e1);
-      }
-    } else {
-      if (deviceIdToUse) {
-        try {
-          return await tryGetUserMedia({
-            video: { deviceId: { exact: deviceIdToUse } },
-            audio: false,
-          }, 3000);
-        } catch (e1) {
-          try {
-            return await tryGetUserMedia({
-              video: { deviceId: { ideal: deviceIdToUse } },
-              audio: false,
-            }, 3000);
-          } catch (e1b) {
-            console.warn('Laptop Tier 1 with deviceId failed, falling back to basic video', e1b);
-          }
-        }
+        console.warn('Mobile facingMode failed, falling back to basic video: true', e1);
+        return await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
       }
     }
 
-    // Universal fallback: bare basic video: true (compatible with all laptop integrated webcams)
-    return await tryGetUserMedia({ video: true, audio: false }, 4000);
+    // Laptop / Desktop: If specific device requested, attempt ideal deviceId
+    if (deviceIdToUse) {
+      try {
+        return await navigator.mediaDevices.getUserMedia({
+          video: { deviceId: { ideal: deviceIdToUse } },
+          audio: false,
+        });
+      } catch (e2) {
+        console.warn('DeviceId request failed, falling back to universal stream', e2);
+      }
+    }
+
+    // Universal default: Basic video stream (instant connection on all laptop webcams)
+    return await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
   };
 
   // Start Camera with Multi-Tier Fallback
@@ -632,6 +587,7 @@ export const CameraHUD = ({
                 onChange={handleDeviceChange}
                 className="bg-slate-950 border border-slate-700 text-teal-300 text-[11px] font-medium rounded-lg px-2 py-1 max-w-[200px] sm:max-w-[260px] truncate focus:ring-1 focus:ring-teal-500 focus:outline-none"
               >
+                <option value="">Default Integrated Camera</option>
                 {availableDevices.map((d, i) => (
                   <option key={d.deviceId || i} value={d.deviceId}>
                     {d.label || `Camera ${i + 1}`}
@@ -639,7 +595,7 @@ export const CameraHUD = ({
                 ))}
               </select>
             ) : (
-              <span className="text-[11px] text-teal-400 font-mono">Default Laptop Webcam</span>
+              <span className="text-[11px] text-teal-400 font-mono">Integrated Camera</span>
             )}
           </div>
 
