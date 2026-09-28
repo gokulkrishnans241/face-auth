@@ -35,11 +35,7 @@ export const FacultyManagement = () => {
   // Modal State (Details -> Camera Face Capture -> Success)
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalStep, setModalStep] = useState('details'); // 'details' | 'camera' | 'success'
-  const [captureTab, setCaptureTab] = useState('camera'); // 'camera' | 'upload'
-  const [uploadedImagePreview, setUploadedImagePreview] = useState(null);
-  const [uploadQualityResult, setUploadQualityResult] = useState(null);
-  const [isAnalyzingPhoto, setIsAnalyzingPhoto] = useState(false);
-  const photoInputRef = useRef(null);
+
 
   const [editingFaculty, setEditingFaculty] = useState(null);
   const [formData, setFormData] = useState({

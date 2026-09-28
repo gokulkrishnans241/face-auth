@@ -36,11 +36,7 @@ export const StudentManagement = () => {
   // Combined Student Registration + Face Enrollment Modal
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [addStep, setAddStep] = useState('details'); // 'details' | 'camera' | 'success'
-  const [captureTab, setCaptureTab] = useState('camera'); // 'camera' | 'upload'
-  const [uploadedImagePreview, setUploadedImagePreview] = useState(null);
-  const [uploadQualityResult, setUploadQualityResult] = useState(null);
-  const [isAnalyzingPhoto, setIsAnalyzingPhoto] = useState(false);
-  const photoInputRef = useRef(null);
+
 
   const [formData, setFormData] = useState({
     userId: '',

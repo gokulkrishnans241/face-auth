@@ -7,7 +7,6 @@ import {
   ShieldAlert,
   Sparkles,
   Eye,
-  Upload,
   AlertCircle,
   Scan,
   UserX,
@@ -19,6 +18,7 @@ import {
   SwitchCamera,
   Video,
   Zap,
+  HelpCircle,
 } from 'lucide-react';
 import { loadFaceModels, detectFaceWithQuality } from '../../services/faceApiService';
 
@@ -48,6 +48,43 @@ export const playSuccessChime = () => {
   } catch (e) {
     // Audio context may be restricted by autoplay policy
   }
+};
+
+/**
+ * Timeout helper to prevent getUserMedia from hanging indefinitely on Windows DirectShow/MediaFoundation
+ */
+const getUserMediaWithTimeout = (constraints, timeoutMs = 5000) => {
+  return new Promise(async (resolve, reject) => {
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      reject(new Error(`Camera request timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        clearTimeout(timer);
+        return reject(new Error('Browser does not support navigator.mediaDevices.getUserMedia'));
+      }
+      const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+      clearTimeout(timer);
+      if (timedOut) {
+        // If stream arrived after timeout, release all tracks immediately
+        mediaStream.getTracks().forEach((track) => {
+          try {
+            track.stop();
+          } catch (e) {}
+        });
+      } else {
+        resolve(mediaStream);
+      }
+    } catch (err) {
+      clearTimeout(timer);
+      if (!timedOut) {
+        reject(err);
+      }
+    }
+  });
 };
 
 export const CameraHUD = ({
@@ -90,18 +127,38 @@ export const CameraHUD = ({
   const [multipleFacesDetected, setMultipleFacesDetected] = useState(false);
   const [personConfidence, setPersonConfidence] = useState(0);
   const [guidanceText, setGuidanceText] = useState('Align face in frame');
+  const [showTroubleshooting, setShowTroubleshooting] = useState(false);
 
-  // Enumerate video devices
+  // Enumerate video devices and identify physical cameras
   const updateDeviceList = useCallback(async () => {
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
       const devices = await navigator.mediaDevices.enumerateDevices();
       const videoInputs = devices.filter((d) => d.kind === 'videoinput');
       setAvailableDevices(videoInputs);
+
+      // If user hasn't selected a device yet and we find devices with labels
+      if (!selectedDeviceId && videoInputs.length > 0) {
+        // Find best physical camera (Integrated / HD / Webcam / Front)
+        const preferred = videoInputs.find((d) => {
+          const label = (d.label || '').toLowerCase();
+          return (
+            label.includes('integrated') ||
+            label.includes('internal') ||
+            label.includes('hd') ||
+            label.includes('webcam') ||
+            label.includes('front') ||
+            label.includes('camera')
+          );
+        });
+        if (preferred && preferred.deviceId) {
+          setSelectedDeviceId(preferred.deviceId);
+        }
+      }
     } catch (e) {
       console.warn('Device enumeration warning:', e);
     }
-  }, []);
+  }, [selectedDeviceId]);
 
   useEffect(() => {
     updateDeviceList();
@@ -111,7 +168,7 @@ export const CameraHUD = ({
     };
   }, [updateDeviceList]);
 
-  // Pre-load Deep Face Recognition Models
+  // Pre-load Deep Face Recognition Models in background
   useEffect(() => {
     let isMounted = true;
     loadFaceModels()
@@ -146,60 +203,125 @@ export const CameraHUD = ({
     }
   }, []);
 
-  // Universal Stream Acquisition with graceful fallback
+  // Multi-tier Adaptive Stream Acquisition Strategy
   const acquireStream = async (modeToUse, deviceIdToUse) => {
-    // 1. Mobile logic
-    if (isMobile) {
+    const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || ('ontouchstart' in window && window.innerWidth < 1024);
+
+    // ==========================================
+    // MOBILE STRATEGY
+    // ==========================================
+    if (isMobileDevice) {
+      // Mobile Tier 1: facingMode 'user' / 'environment'
       try {
-        return await navigator.mediaDevices.getUserMedia({
+        console.log('Mobile Camera Strategy 1: facingMode', modeToUse || 'user');
+        return await getUserMediaWithTimeout({
           video: { facingMode: modeToUse ? { ideal: modeToUse } : 'user' },
           audio: false,
-        });
-      } catch (eMobile) {
-        return await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        }, 4000);
+      } catch (e1) {
+        console.warn('Mobile Strategy 1 failed, trying unconstrained video: true...', e1);
       }
+
+      // Mobile Tier 2: Unconstrained video
+      try {
+        return await getUserMediaWithTimeout({ video: true, audio: false }, 3500);
+      } catch (e2) {
+        console.warn('Mobile Strategy 2 failed, trying safe VGA...', e2);
+      }
+
+      // Mobile Tier 3: Standard VGA
+      return await getUserMediaWithTimeout({
+        video: { width: { ideal: 640 }, height: { ideal: 480 } },
+        audio: false,
+      }, 3500);
     }
 
-    // 2. Laptop / Desktop with explicit device selected
+    // ==========================================
+    // LAPTOP / DESKTOP STRATEGY (Windows / macOS / Linux)
+    // ==========================================
+    // Laptop Tier 1: Explicit deviceId (if user selected a specific camera from dropdown)
     if (deviceIdToUse) {
       try {
-        return await navigator.mediaDevices.getUserMedia({
+        console.log('Laptop Camera Strategy 1: Explicit deviceId', deviceIdToUse);
+        return await getUserMediaWithTimeout({
           video: { deviceId: { exact: deviceIdToUse } },
           audio: false,
-        });
-      } catch (eExact) {
+        }, 4000);
+      } catch (eDevExact) {
         try {
-          return await navigator.mediaDevices.getUserMedia({
+          return await getUserMediaWithTimeout({
             video: { deviceId: { ideal: deviceIdToUse } },
             audio: false,
-          });
-        } catch (eIdeal) {
-          // fallback to universal below
+          }, 3500);
+        } catch (eDevIdeal) {
+          console.warn('Explicit deviceId failed, falling back to standard video...', eDevIdeal);
         }
       }
     }
 
-    // 3. Laptop Webcams - Direct Unconstrained Stream (Most compatible with Windows & Mac)
+    // Laptop Tier 2: Standard Laptop HD / High-Resolution (1280x720)
     try {
-      return await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-    } catch (eDirect) {
-      // Fallback: Safe standard resolution (640x480)
-      return await navigator.mediaDevices.getUserMedia({
+      console.log('Laptop Camera Strategy 2: High Resolution 720p/1080p');
+      return await getUserMediaWithTimeout({
+        video: {
+          width: { ideal: 1280, max: 1920 },
+          height: { ideal: 720, max: 1080 },
+        },
+        audio: false,
+      }, 4000);
+    } catch (eHD) {
+      console.warn('Laptop Strategy 2 (HD) failed, trying direct unconstrained video: true...', eHD);
+    }
+
+    // Laptop Tier 3: Pure Unconstrained Native { video: true } (Zero-constraint, universal W3C call)
+    try {
+      console.log('Laptop Camera Strategy 3: Pure video: true');
+      return await getUserMediaWithTimeout({
+        video: true,
+        audio: false,
+      }, 4000);
+    } catch (eTrue) {
+      console.warn('Laptop Strategy 3 (video: true) failed, trying safe VGA 640x480...', eTrue);
+    }
+
+    // Laptop Tier 4: Safe Standard VGA 640x480
+    try {
+      console.log('Laptop Camera Strategy 4: VGA 640x480');
+      return await getUserMediaWithTimeout({
         video: { width: { ideal: 640 }, height: { ideal: 480 } },
         audio: false,
-      });
+      }, 3500);
+    } catch (eVGA) {
+      console.warn('Laptop Strategy 4 (VGA) failed, trying facingMode user...', eVGA);
     }
+
+    // Laptop Tier 5: facingMode fallback
+    try {
+      console.log('Laptop Camera Strategy 5: facingMode user');
+      return await getUserMediaWithTimeout({
+        video: { facingMode: 'user' },
+        audio: false,
+      }, 3500);
+    } catch (eFacing) {
+      console.warn('Laptop Strategy 5 (facingMode) failed, trying minimum baseline...', eFacing);
+    }
+
+    // Laptop Tier 6: Minimum Baseline 320x240
+    return await getUserMediaWithTimeout({
+      video: { width: { ideal: 320 }, height: { ideal: 240 } },
+      audio: false,
+    }, 3000);
   };
 
   // Start Camera with Concurrency Protection & Auto-Retry
   const startCamera = useCallback(
-    async (modeToUse = facingMode, deviceIdToUse = selectedDeviceId) => {
-      if (isStartingRef.current) return;
+    async (modeToUse = facingMode, deviceIdToUse = selectedDeviceId, force = false) => {
+      if (isStartingRef.current && !force) return;
       isStartingRef.current = true;
 
       stopCamera();
       // Brief pause to allow OS hardware driver to release lock
-      await new Promise((resolve) => setTimeout(resolve, 150));
+      await new Promise((resolve) => setTimeout(resolve, 80));
 
       setCameraStatus('initializing');
       setErrorMessage('');
@@ -229,6 +351,7 @@ export const CameraHUD = ({
           video.playsInline = true;
           video.setAttribute('playsinline', 'true');
           video.setAttribute('webkit-playsinline', 'true');
+          video.setAttribute('autoplay', 'true');
 
           const markReady = () => {
             setCameraStatus('active');
@@ -260,14 +383,14 @@ export const CameraHUD = ({
           );
         } else {
           setErrorMessage(
-            err.message || 'Unable to connect to camera. Please make sure no other program (Zoom, Teams, or another tab) is holding the camera.'
+            err.message || 'Unable to connect to camera. Please make sure no other application (Zoom, Teams, or another tab) is holding the webcam.'
           );
         }
       } finally {
         isStartingRef.current = false;
       }
     },
-    [facingMode, selectedDeviceId, isMobile, stopCamera, updateDeviceList]
+    [facingMode, selectedDeviceId, stopCamera, updateDeviceList]
   );
 
   // Auto-connect on active prop change
@@ -292,6 +415,7 @@ export const CameraHUD = ({
       video.playsInline = true;
       video.setAttribute('playsinline', 'true');
       video.setAttribute('webkit-playsinline', 'true');
+      video.setAttribute('autoplay', 'true');
 
       const markActive = () => {
         setCameraStatus('active');
@@ -311,61 +435,23 @@ export const CameraHUD = ({
     }
   }, [stream]);
 
-  // Fast Reload Camera button
+  // Force Reload Camera button
   const handleReloadCamera = () => {
-    startCamera(facingMode, selectedDeviceId);
+    startCamera(facingMode, selectedDeviceId, true);
   };
 
   // Change Camera Device on Desktop/Laptop
   const handleDeviceChange = (e) => {
     const newDevId = e.target.value;
     setSelectedDeviceId(newDevId);
-    startCamera(facingMode, newDevId);
+    startCamera(facingMode, newDevId, true);
   };
 
   // Flip Camera Front / Back for mobile
   const handleFlipCamera = () => {
     const nextMode = facingMode === 'user' ? 'environment' : 'user';
     setFacingMode(nextMode);
-    startCamera(nextMode, selectedDeviceId);
-  };
-
-  // Upload Photo fallback
-  const handleFileUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const img = new Image();
-      img.onload = async () => {
-        try {
-          const result = await detectFaceWithQuality(img);
-          if (result && result.isDetected && result.descriptor && onFaceDetected) {
-            setHumanPresent(true);
-            setMultipleFacesDetected(false);
-            setPersonConfidence(result.score || 95);
-            setGuidanceText(result.guidance);
-            onFaceDetected({
-              embedding: result.descriptor,
-              livenessVerified: true,
-              timestamp: Date.now(),
-              brightness: 120,
-              personConfidence: result.score || 95,
-            });
-          } else if (result.multipleFaces) {
-            alert('Multiple faces detected in uploaded photo. Please upload a photo with only one person.');
-          } else {
-            setHumanPresent(false);
-            alert('No clear human face detected. Please provide a clear portrait photo.');
-          }
-        } catch (err) {
-          alert('Error processing image: ' + err.message);
-        }
-      };
-      img.src = event.target.result;
-    };
-    reader.readAsDataURL(file);
+    startCamera(nextMode, selectedDeviceId, true);
   };
 
   // Trigger manual snapshot capture
@@ -405,7 +491,7 @@ export const CameraHUD = ({
     }
   };
 
-  // Continuous Face Tracking Loop (300ms cycle)
+  // Continuous Face Tracking Loop (250ms cycle)
   useEffect(() => {
     let intervalId;
 
@@ -600,7 +686,7 @@ export const CameraHUD = ({
         } finally {
           isAnalyzingRef.current = false;
         }
-      }, 300);
+      }, 250);
     }
 
     return () => {
@@ -612,19 +698,19 @@ export const CameraHUD = ({
 
   return (
     <div className="relative w-full max-w-2xl mx-auto rounded-3xl overflow-hidden bg-slate-950 border border-slate-800 shadow-2xl">
-      {/* Top Header Bar for Desktop / Laptop: Camera Source Picker & Quick Reload */}
+      {/* Top Header Bar for Desktop / Laptop: Camera Source Picker & Quick Controls */}
       {!isMobile && (
         <div className="px-4 py-2.5 bg-slate-900/90 border-b border-slate-800 flex items-center justify-between text-xs gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <Video className="w-3.5 h-3.5 text-teal-400 shrink-0" />
-            <span className="text-[11px] font-semibold text-slate-300 shrink-0">Camera Source:</span>
+            <span className="text-[11px] font-semibold text-slate-300 shrink-0">Webcam:</span>
             {availableDevices.length > 0 ? (
               <select
                 value={selectedDeviceId}
                 onChange={handleDeviceChange}
-                className="bg-slate-950 border border-slate-700 text-teal-300 text-[11px] font-medium rounded-lg px-2 py-1 max-w-[200px] sm:max-w-[260px] truncate focus:ring-1 focus:ring-teal-500 focus:outline-none"
+                className="bg-slate-950 border border-slate-700 text-teal-300 text-[11px] font-medium rounded-lg px-2 py-1 max-w-[180px] sm:max-w-[240px] truncate focus:ring-1 focus:ring-teal-500 focus:outline-none"
               >
-                <option value="">Default Integrated Camera</option>
+                <option value="">Auto-Detect Default Camera</option>
                 {availableDevices.map((d, i) => (
                   <option key={d.deviceId || i} value={d.deviceId}>
                     {d.label || `Camera ${i + 1}`}
@@ -641,10 +727,10 @@ export const CameraHUD = ({
               type="button"
               onClick={handleReloadCamera}
               className="px-2.5 py-1 rounded-lg bg-teal-500/10 hover:bg-teal-500/20 text-teal-300 border border-teal-500/30 text-[10px] font-bold flex items-center gap-1 transition-all"
-              title="Quickly reload/refresh the webcam stream"
+              title="Force reload the webcam stream"
             >
               <RefreshCw className="w-3 h-3" />
-              <span>Reload Cam</span>
+              <span>Turn On / Reload</span>
             </button>
             <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 text-[10px] font-mono">
               {videoInfo}
@@ -681,16 +767,11 @@ export const CameraHUD = ({
           <div className="absolute inset-x-8 h-1 bg-gradient-to-r from-transparent via-teal-400 to-transparent shadow-lg shadow-teal-500/50 scanner-laser pointer-events-none" />
         )}
 
-        {/* AI Neural Network Models Loading Overlay */}
-        {modelStatus === 'loading' && (
-          <div className="absolute inset-0 bg-slate-950/95 flex flex-col items-center justify-center p-6 text-center space-y-3 z-30">
-            <Cpu className="w-9 h-9 text-teal-400 animate-bounce" />
-            <div>
-              <h4 className="text-sm font-bold text-white font-outfit">Loading Deep Face-API AI Neural Network...</h4>
-              <p className="text-xs text-slate-400 mt-1 max-w-xs">
-                Initializing 128-d ResNet-34 Face Recognition & 68 Landmark Models for high-accuracy biometric matching
-              </p>
-            </div>
+        {/* Non-blocking AI Models Warming Up Badge (Allows user to see camera immediately!) */}
+        {modelStatus === 'loading' && cameraStatus === 'active' && (
+          <div className="absolute top-3 left-3 bg-slate-900/90 border border-teal-500/40 text-teal-300 px-3 py-1.5 rounded-xl text-[11px] font-semibold flex items-center gap-2 shadow-lg backdrop-blur-sm z-20 animate-pulse">
+            <Cpu className="w-3.5 h-3.5 text-teal-400" />
+            <span>AI Recognition Engine Warming Up...</span>
           </div>
         )}
 
@@ -718,31 +799,44 @@ export const CameraHUD = ({
             <div>
               <h4 className="text-sm font-bold text-white font-outfit">Camera Covered / Shutter Closed</h4>
               <p className="text-xs text-rose-300 mt-1 max-w-xs">
-                Please open your camera shutter or remove any lens cover to proceed.
+                Please open your camera privacy slider/shutter or remove lens cover to proceed.
               </p>
             </div>
           </div>
         )}
 
-        {/* Initializing Spinner */}
-        {cameraStatus === 'initializing' && (
-          <div className="absolute inset-0 bg-slate-950/95 flex flex-col items-center justify-center p-6 text-center space-y-3 z-20">
-            <RefreshCw className="w-8 h-8 text-teal-400 animate-spin" />
+        {/* Initializing / Click-to-Start View */}
+        {cameraStatus === 'initializing' && !stream && (
+          <div className="absolute inset-0 bg-slate-950/95 flex flex-col items-center justify-center p-6 text-center space-y-4 z-20">
+            <div className="w-14 h-14 rounded-full bg-teal-500/10 text-teal-400 flex items-center justify-center border border-teal-500/30">
+              <Camera className="w-7 h-7 animate-pulse" />
+            </div>
             <div>
               <h4 className="text-sm font-bold text-white font-outfit">
-                {isMobile ? 'Connecting Mobile Camera...' : 'Connecting Laptop Camera...'}
+                {isMobile ? 'Connecting Mobile Camera...' : 'Activating Laptop Camera...'}
               </h4>
-              <p className="text-xs text-slate-400 mt-1">Establishing optical video stream</p>
+              <p className="text-xs text-slate-400 mt-1 max-w-xs">
+                Click the button below to turn on your webcam and grant browser permission.
+              </p>
             </div>
 
-            <div className="pt-2 flex items-center justify-center">
+            <div className="pt-2 flex flex-col items-center gap-2">
               <button
                 type="button"
-                onClick={() => startCamera(facingMode, '')}
-                className="px-4 py-2 rounded-xl bg-teal-500 hover:bg-teal-600 text-slate-950 text-xs font-bold transition-all shadow-md shadow-teal-500/20 flex items-center gap-1.5"
+                onClick={() => startCamera(facingMode, selectedDeviceId, true)}
+                className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-600 hover:to-emerald-700 text-slate-950 text-xs font-bold transition-all shadow-lg shadow-teal-500/30 flex items-center gap-2 active:scale-95"
               >
-                <Zap className="w-3.5 h-3.5" />
-                <span>Instant Connect</span>
+                <Zap className="w-4 h-4" />
+                <span>🟢 Click to Turn On Camera</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowTroubleshooting(!showTroubleshooting)}
+                className="text-[11px] text-teal-400/80 hover:text-teal-300 underline flex items-center gap-1 mt-1"
+              >
+                <HelpCircle className="w-3 h-3" />
+                <span>Laptop camera help & tips</span>
               </button>
             </div>
           </div>
@@ -750,20 +844,30 @@ export const CameraHUD = ({
 
         {/* Access Denied */}
         {cameraStatus === 'denied' && (
-          <div className="absolute inset-0 bg-slate-950/95 flex flex-col items-center justify-center p-6 text-center space-y-3">
+          <div className="absolute inset-0 bg-slate-950/95 flex flex-col items-center justify-center p-6 text-center space-y-3 z-20">
             <div className="w-12 h-12 rounded-full bg-rose-500/20 text-rose-400 flex items-center justify-center border border-rose-500/30">
               <CameraOff className="w-6 h-6" />
             </div>
             <div>
-              <h4 className="text-sm font-bold text-white">Camera Access Denied</h4>
+              <h4 className="text-sm font-bold text-white font-outfit">Camera Access Denied</h4>
               <p className="text-xs text-slate-400 mt-1 max-w-xs">{errorMessage}</p>
             </div>
-            <button
-              onClick={handleReloadCamera}
-              className="px-4 py-2 rounded-xl bg-teal-500 hover:bg-teal-600 text-slate-950 text-xs font-bold transition-colors"
-            >
-              Retry Camera Permission
-            </button>
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => startCamera(facingMode, selectedDeviceId, true)}
+                className="px-4 py-2 rounded-xl bg-teal-500 hover:bg-teal-600 text-slate-950 text-xs font-bold transition-colors shadow-md"
+              >
+                Grant Permission & Turn On
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowTroubleshooting(true)}
+                className="px-3 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-semibold hover:bg-slate-700"
+              >
+                How to Fix
+              </button>
+            </div>
           </div>
         )}
 
@@ -774,17 +878,80 @@ export const CameraHUD = ({
               <ShieldAlert className="w-6 h-6" />
             </div>
             <div>
-              <h4 className="text-sm font-bold text-white font-outfit">Camera Stream Waiting</h4>
+              <h4 className="text-sm font-bold text-white font-outfit">Camera Not Connected</h4>
               <p className="text-xs text-slate-400 mt-1 max-w-xs">{errorMessage}</p>
             </div>
 
-            <button
-              type="button"
-              onClick={handleReloadCamera}
-              className="px-4 py-2 rounded-xl bg-teal-500 hover:bg-teal-600 text-slate-950 text-xs font-bold flex items-center gap-1.5 shadow-md shadow-teal-500/20 transition-all"
-            >
-              <RefreshCw className="w-3.5 h-3.5" /> Retry Camera Stream
-            </button>
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => startCamera(facingMode, selectedDeviceId, true)}
+                className="px-4 py-2 rounded-xl bg-teal-500 hover:bg-teal-600 text-slate-950 text-xs font-bold flex items-center gap-1.5 shadow-md shadow-teal-500/20 transition-all"
+              >
+                <RefreshCw className="w-3.5 h-3.5" /> Retry Camera Connection
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowTroubleshooting(true)}
+                className="px-3 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-semibold hover:bg-slate-700"
+              >
+                Fix Tips
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Troubleshooting Modal/Drawer */}
+        {showTroubleshooting && (
+          <div className="absolute inset-0 bg-slate-950/98 backdrop-blur-md flex flex-col p-5 z-40 text-left overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <HelpCircle className="w-4 h-4 text-teal-400" />
+                <span>Laptop Camera Troubleshooting Guide</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowTroubleshooting(false)}
+                className="text-xs text-slate-400 hover:text-white px-2 py-1 bg-slate-900 rounded-lg"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-3 space-y-2.5 text-xs text-slate-300">
+              <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
+                <strong className="text-teal-300 block mb-1">1. Browser Camera Permission:</strong>
+                Click the <strong>🔒 Lock or 🎥 Camera icon</strong> on the left side of your browser URL address bar, and make sure <em>Camera</em> is set to <strong>"Allow"</strong>.
+              </div>
+
+              <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
+                <strong className="text-teal-300 block mb-1">2. Physical Privacy Shutter / Switch:</strong>
+                Many laptops (Lenovo, Dell, HP, Asus) have a tiny physical sliding shutter over the webcam or an <strong>F8/F10 camera key</strong> on the keyboard. Check that it is open.
+              </div>
+
+              <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
+                <strong className="text-teal-300 block mb-1">3. Windows Camera Privacy Settings:</strong>
+                Open Windows <strong>Settings ➔ Privacy & Security ➔ Camera</strong>, and ensure <em>"Let apps access your camera"</em> and <em>"Let desktop apps access your camera"</em> are turned <strong>ON</strong>.
+              </div>
+
+              <div className="p-3 rounded-xl bg-slate-900 border border-slate-800">
+                <strong className="text-teal-300 block mb-1">4. Close Conflicting Programs:</strong>
+                Ensure no other program (Zoom, Microsoft Teams, Skype, or Windows Camera app) is currently holding the webcam stream.
+              </div>
+            </div>
+
+            <div className="mt-4 pt-3 border-t border-slate-800 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowTroubleshooting(false);
+                  startCamera(facingMode, selectedDeviceId, true);
+                }}
+                className="px-4 py-2 rounded-xl bg-teal-500 hover:bg-teal-600 text-slate-950 font-bold text-xs shadow-md"
+              >
+                Try Camera Now
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -849,12 +1016,12 @@ export const CameraHUD = ({
             </button>
           )}
 
-          {/* Quick Reload Camera Button */}
+          {/* Quick Turn On / Reload Camera Button */}
           <button
             type="button"
             onClick={handleReloadCamera}
             className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors"
-            title="Reload Camera Stream"
+            title="Reload/Turn On Camera Stream"
           >
             <RotateCcw className="w-3.5 h-3.5" />
           </button>
@@ -880,3 +1047,4 @@ export const CameraHUD = ({
 };
 
 export default CameraHUD;
+
