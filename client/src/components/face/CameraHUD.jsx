@@ -154,11 +154,80 @@ export const CameraHUD = ({
     }
   }, []);
 
-  // Start Camera with Reliable Multi-Tier Fallback (no premature timeout aborts)
+  // Safe getUserMedia with bounded watchdog per tier to prevent driver hangs on laptop webcams
+  const acquireStream = async (modeToUse, deviceIdToUse) => {
+    const tryGetUserMedia = (constraints, ms = 3500) => {
+      return new Promise(async (resolve, reject) => {
+        let isSettled = false;
+        const timer = setTimeout(() => {
+          if (!isSettled) {
+            isSettled = true;
+            reject(new Error('Hardware negotiation timeout'));
+          }
+        }, ms);
+
+        try {
+          const s = await navigator.mediaDevices.getUserMedia(constraints);
+          if (!isSettled) {
+            isSettled = true;
+            clearTimeout(timer);
+            resolve(s);
+          } else {
+            // If settled after timeout, release late stream tracks
+            s.getTracks().forEach((t) => {
+              try { t.stop(); } catch (_) {}
+            });
+          }
+        } catch (err) {
+          if (!isSettled) {
+            isSettled = true;
+            clearTimeout(timer);
+            reject(err);
+          }
+        }
+      });
+    };
+
+    if (isMobile) {
+      try {
+        return await tryGetUserMedia({
+          video: { facingMode: modeToUse ? { ideal: modeToUse } : 'user' },
+          audio: false,
+        }, 3500);
+      } catch (e1) {
+        console.warn('Mobile Tier 1 failed, trying basic video: true', e1);
+      }
+    } else {
+      if (deviceIdToUse) {
+        try {
+          return await tryGetUserMedia({
+            video: { deviceId: { exact: deviceIdToUse } },
+            audio: false,
+          }, 3000);
+        } catch (e1) {
+          try {
+            return await tryGetUserMedia({
+              video: { deviceId: { ideal: deviceIdToUse } },
+              audio: false,
+            }, 3000);
+          } catch (e1b) {
+            console.warn('Laptop Tier 1 with deviceId failed, falling back to basic video', e1b);
+          }
+        }
+      }
+    }
+
+    // Universal fallback: bare basic video: true (compatible with all laptop integrated webcams)
+    return await tryGetUserMedia({ video: true, audio: false }, 4000);
+  };
+
+  // Start Camera with Multi-Tier Fallback
   const startCamera = useCallback(
     async (modeToUse = facingMode, deviceIdToUse = selectedDeviceId) => {
-      // Release previous hardware locks first
       stopCamera();
+
+      // Brief delay to allow Windows / macOS kernel to release webcam hardware lock
+      await new Promise((resolve) => setTimeout(resolve, 150));
 
       setCameraStatus('initializing');
       setErrorMessage('');
@@ -168,52 +237,7 @@ export const CameraHUD = ({
           throw new Error('Camera API not supported in this browser. Please access via HTTPS or localhost.');
         }
 
-        let mediaStream = null;
-
-        if (isMobile) {
-          // ================= MOBILE STRATEGY =================
-          try {
-            mediaStream = await navigator.mediaDevices.getUserMedia({
-              video: {
-                facingMode: modeToUse ? { ideal: modeToUse } : 'user',
-                width: { ideal: 1280 },
-                height: { ideal: 720 },
-              },
-              audio: false,
-            });
-          } catch (e1) {
-            console.warn('Mobile Tier 1 failed, trying simple video: true:', e1);
-            mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-          }
-        } else {
-          // ================= LAPTOP / DESKTOP STRATEGY =================
-          if (deviceIdToUse) {
-            try {
-              mediaStream = await navigator.mediaDevices.getUserMedia({
-                video: {
-                  deviceId: { ideal: deviceIdToUse },
-                  width: { ideal: 1280 },
-                  height: { ideal: 720 },
-                },
-                audio: false,
-              });
-            } catch (e1) {
-              console.warn('Laptop Tier 1 with deviceId failed, falling back to direct video: true', e1);
-            }
-          }
-
-          if (!mediaStream) {
-            try {
-              mediaStream = await navigator.mediaDevices.getUserMedia({
-                video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-                audio: false,
-              });
-            } catch (e2) {
-              console.warn('Laptop Tier 2 failed, falling back to basic video: true', e2);
-              mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-            }
-          }
-        }
+        const mediaStream = await acquireStream(modeToUse, deviceIdToUse);
 
         if (!mediaStream) {
           throw new Error('Could not obtain camera video stream.');
@@ -223,7 +247,7 @@ export const CameraHUD = ({
         setStream(mediaStream);
         setCameraStatus('active');
 
-        // Refresh device list to populate labels after permissions granted
+        // Update device list with granted labels
         updateDeviceList();
 
         // Attach to video element
@@ -236,11 +260,23 @@ export const CameraHUD = ({
           video.setAttribute('playsinline', 'true');
           video.setAttribute('webkit-playsinline', 'true');
 
-          // Ensure video playback starts immediately
+          const markReady = () => {
+            setCameraStatus('active');
+            if (video.videoWidth && video.videoHeight) {
+              setVideoInfo(`${video.videoWidth}x${video.videoHeight}`);
+            }
+          };
+
+          video.onloadedmetadata = markReady;
+          video.onloadeddata = markReady;
+          video.oncanplay = markReady;
+
           try {
             await video.play();
+            markReady();
           } catch (err) {
-            console.warn('Video play caught:', err);
+            console.warn('Video play warning:', err);
+            setCameraStatus('active');
           }
         }
       } catch (err) {
@@ -709,7 +745,7 @@ export const CameraHUD = ({
             <div className="pt-2 flex flex-wrap items-center justify-center gap-2">
               <button
                 type="button"
-                onClick={handleReloadCamera}
+                onClick={() => startCamera(facingMode, '')}
                 className="px-3.5 py-1.5 rounded-xl bg-teal-500 hover:bg-teal-600 text-slate-950 text-xs font-bold transition-all shadow-md shadow-teal-500/20 flex items-center gap-1"
               >
                 <Zap className="w-3.5 h-3.5" />
