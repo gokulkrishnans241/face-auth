@@ -265,6 +265,35 @@ export const CameraHUD = ({
     };
   }, [active]);
 
+  // Ensure video element receives stream whenever stream state updates
+  useEffect(() => {
+    const video = videoElementRef.current;
+    if (video && stream) {
+      video.srcObject = stream;
+      video.muted = true;
+      video.defaultMuted = true;
+      video.playsInline = true;
+      video.setAttribute('playsinline', 'true');
+      video.setAttribute('webkit-playsinline', 'true');
+
+      const markActive = () => {
+        setCameraStatus('active');
+        if (video.videoWidth && video.videoHeight) {
+          setVideoInfo(`${video.videoWidth}x${video.videoHeight}`);
+        }
+      };
+
+      video.onloadedmetadata = markActive;
+      video.onloadeddata = markActive;
+      video.oncanplay = markActive;
+
+      video.play().then(markActive).catch((err) => {
+        console.warn('Auto-play stream warning:', err);
+        setCameraStatus('active');
+      });
+    }
+  }, [stream]);
+
   // Fast Reload Camera button
   const handleReloadCamera = () => {
     startCamera(facingMode, selectedDeviceId);
