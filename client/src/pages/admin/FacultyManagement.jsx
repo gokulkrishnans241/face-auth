@@ -42,6 +42,7 @@ export const FacultyManagement = () => {
     accountStatus: 'active',
   });
   const [capturedSamples, setCapturedSamples] = useState(0);
+  const [capturedEmbedding, setCapturedEmbedding] = useState(null);
   const [saving, setSaving] = useState(false);
   const [createdFaculty, setCreatedFaculty] = useState(null);
   const [message, setMessage] = useState('');
@@ -72,6 +73,7 @@ export const FacultyManagement = () => {
     setCreatedFaculty(null);
     setModalStep('details');
     setCapturedSamples(0);
+    setCapturedEmbedding(null);
     setError('');
     setFormData({
       userId: `FAC${100 + faculty.length + 1}`,
@@ -89,6 +91,7 @@ export const FacultyManagement = () => {
     setEditingFaculty(f);
     setCreatedFaculty(f);
     setModalStep('details');
+    setCapturedEmbedding(null);
     setError('');
     setFormData({
       userId: f.userId,
@@ -171,6 +174,7 @@ export const FacultyManagement = () => {
         for (let i = 0; i < numDims; i++) normSq += avgVec[i] * avgVec[i];
         const norm = Math.sqrt(normSq) || 1;
         const normalizedAvg = avgVec.map((v) => parseFloat((v / norm).toFixed(6)));
+        setCapturedEmbedding(normalizedAvg);
 
         const res = await apiClient.post('/face/enroll', {
           userId: target._id,
@@ -196,6 +200,35 @@ export const FacultyManagement = () => {
       } finally {
         setSaving(false);
       }
+    }
+  };
+
+  const handleForceEnroll = async () => {
+    if (!capturedEmbedding) return;
+    const target = createdFaculty || editingFaculty;
+    if (!target) return;
+    setSaving(true);
+    setError('');
+    try {
+      const res = await apiClient.post('/face/enroll', {
+        userId: target._id,
+        facialEmbedding: capturedEmbedding,
+        biometricConsent: true,
+        imageQualityScore: 0.98,
+        forceOverride: true,
+      });
+      if (res.data.success) {
+        playSuccessChime();
+        confetti({ particleCount: 60, spread: 70, origin: { y: 0.6 } });
+        setModalStep('success');
+        fetchData();
+      } else {
+        setError(res.data.message || 'Error saving face embedding.');
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || 'Error saving face embedding.');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -550,6 +583,39 @@ export const FacultyManagement = () => {
               <div className="flex items-center justify-center gap-2 p-3 text-xs text-teal-300 bg-teal-950/60 rounded-xl border border-teal-500/30">
                 <RefreshCw className="w-4 h-4 animate-spin" />
                 <span>Saving faculty biometric profile to cloud...</span>
+              </div>
+            )}
+
+            {error && (
+              <div className="p-3.5 rounded-2xl bg-red-950/80 border border-red-500/40 text-xs text-red-200 flex flex-col gap-2.5">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-400" />
+                  <span className="leading-relaxed">{error}</span>
+                </div>
+                <div className="flex items-center gap-2 pt-1 flex-wrap">
+                  {capturedEmbedding && (
+                    <button
+                      type="button"
+                      onClick={handleForceEnroll}
+                      disabled={saving}
+                      className="px-3.5 py-1.5 rounded-xl bg-teal-500 hover:bg-teal-600 text-slate-950 font-bold text-xs transition-all shadow-md shadow-teal-500/20 flex items-center gap-1.5"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Force Register Face</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      facultySamplesRef.current = [];
+                      setCapturedSamples(0);
+                      setError('');
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold"
+                  >
+                    Retry Camera Sampling
+                  </button>
+                </div>
               </div>
             )}
           </div>

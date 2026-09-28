@@ -50,32 +50,6 @@ export const playSuccessChime = () => {
   }
 };
 
-/**
- * Helper to race getUserMedia against a fast timeout to prevent hanging
- */
-const requestMediaStream = async (constraints, timeoutMs = 2500) => {
-  let timer;
-  const timeoutPromise = new Promise((_, reject) => {
-    timer = setTimeout(() => {
-      const err = new Error('Camera stream request timed out.');
-      err.name = 'TimeoutError';
-      reject(err);
-    }, timeoutMs);
-  });
-
-  try {
-    const stream = await Promise.race([
-      navigator.mediaDevices.getUserMedia(constraints),
-      timeoutPromise,
-    ]);
-    clearTimeout(timer);
-    return stream;
-  } catch (err) {
-    clearTimeout(timer);
-    throw err;
-  }
-};
-
 export const CameraHUD = ({
   onFaceDetected,
   active = true,
@@ -180,7 +154,7 @@ export const CameraHUD = ({
     }
   }, []);
 
-  // Start Camera with Ultra-Fast Multi-Tier Fallback
+  // Start Camera with Reliable Multi-Tier Fallback (no premature timeout aborts)
   const startCamera = useCallback(
     async (modeToUse = facingMode, deviceIdToUse = selectedDeviceId) => {
       // Release previous hardware locks first
@@ -199,49 +173,44 @@ export const CameraHUD = ({
         if (isMobile) {
           // ================= MOBILE STRATEGY =================
           try {
-            // Fast Tier 1: facingMode with 720p
-            mediaStream = await requestMediaStream({
+            mediaStream = await navigator.mediaDevices.getUserMedia({
               video: {
                 facingMode: modeToUse ? { ideal: modeToUse } : 'user',
                 width: { ideal: 1280 },
                 height: { ideal: 720 },
               },
               audio: false,
-            }, 2000);
+            });
           } catch (e1) {
-            console.warn('Mobile Tier 1 failed, trying simple video:true:', e1);
-            try {
-              mediaStream = await requestMediaStream({ video: true, audio: false }, 2000);
-            } catch (e2) {
-              throw e2;
-            }
+            console.warn('Mobile Tier 1 failed, trying simple video: true:', e1);
+            mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
           }
         } else {
           // ================= LAPTOP / DESKTOP STRATEGY =================
-          // Note: Laptop webcams do NOT support facingMode. Use deviceId with ideal, or direct video:true!
           if (deviceIdToUse) {
             try {
-              // Fast Tier 1: Ideal deviceId + 720p HD (no exact constraint to prevent driver hangs)
-              mediaStream = await requestMediaStream({
+              mediaStream = await navigator.mediaDevices.getUserMedia({
                 video: {
                   deviceId: { ideal: deviceIdToUse },
                   width: { ideal: 1280 },
                   height: { ideal: 720 },
                 },
                 audio: false,
-              }, 2000);
+              });
             } catch (e1) {
-              console.warn('Laptop Tier 1 failed, falling back to direct video:', e1);
+              console.warn('Laptop Tier 1 with deviceId failed, falling back to direct video: true', e1);
             }
           }
 
-          // Fast Tier 2: Basic video:true (fastest, universally supported by all laptop webcams)
           if (!mediaStream) {
             try {
-              mediaStream = await requestMediaStream({ video: true, audio: false }, 2500);
+              mediaStream = await navigator.mediaDevices.getUserMedia({
+                video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+                audio: false,
+              });
             } catch (e2) {
-              console.error('Laptop Tier 2 failed:', e2);
-              throw e2;
+              console.warn('Laptop Tier 2 failed, falling back to basic video: true', e2);
+              mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
             }
           }
         }

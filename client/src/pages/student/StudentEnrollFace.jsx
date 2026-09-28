@@ -20,6 +20,7 @@ export const StudentEnrollFace = () => {
   const [step, setStep] = useState(user?.biometricEnrolled ? 'status' : 'consent');
   const [consentAgreed, setConsentAgreed] = useState(false);
   const [samplesCount, setSamplesCount] = useState(0);
+  const [capturedEmbedding, setCapturedEmbedding] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -32,6 +33,7 @@ export const StudentEnrollFace = () => {
     setError('');
     samplesRef.current = [];
     setSamplesCount(0);
+    setCapturedEmbedding(null);
     setStep('capture');
   };
 
@@ -73,6 +75,7 @@ export const StudentEnrollFace = () => {
         for (let i = 0; i < numDims; i++) normSq += avgVec[i] * avgVec[i];
         const norm = Math.sqrt(normSq) || 1;
         const normalizedAvg = avgVec.map((v) => parseFloat((v / norm).toFixed(5)));
+        setCapturedEmbedding(normalizedAvg);
 
         const res = await apiClient.post('/face/enroll', {
           facialEmbedding: normalizedAvg,
@@ -94,6 +97,32 @@ export const StudentEnrollFace = () => {
       } finally {
         setSubmitting(false);
       }
+    }
+  };
+
+  const handleForceEnroll = async () => {
+    if (!capturedEmbedding) return;
+    setSubmitting(true);
+    setError('');
+    try {
+      const res = await apiClient.post('/face/enroll', {
+        facialEmbedding: capturedEmbedding,
+        biometricConsent: true,
+        imageQualityScore: 0.98,
+        forceOverride: true,
+      });
+
+      if (res.data.success) {
+        playSuccessChime();
+        confetti({ particleCount: 70, spread: 80, origin: { y: 0.6 } });
+        setMessage('Your facial biometric profile has been successfully enrolled!');
+        setStep('complete');
+        refreshUser();
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || 'Error submitting biometric data.');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -242,6 +271,39 @@ export const StudentEnrollFace = () => {
           {submitting && (
             <div className="p-3 text-center text-xs text-teal-300 bg-teal-950/60 rounded-xl border border-teal-500/30">
               Saving biometric encryption to cloud database...
+            </div>
+          )}
+
+          {error && (
+            <div className="p-3.5 rounded-2xl bg-red-950/80 border border-red-500/40 text-xs text-red-200 flex flex-col gap-2.5">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-red-400" />
+                <span className="leading-relaxed">{error}</span>
+              </div>
+              <div className="flex items-center gap-2 pt-1 flex-wrap">
+                {capturedEmbedding && (
+                  <button
+                    type="button"
+                    onClick={handleForceEnroll}
+                    disabled={submitting}
+                    className="px-3.5 py-1.5 rounded-xl bg-teal-500 hover:bg-teal-600 text-slate-950 font-bold text-xs transition-all shadow-md shadow-teal-500/20 flex items-center gap-1.5"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Force Register Face</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    samplesRef.current = [];
+                    setSamplesCount(0);
+                    setError('');
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold"
+                >
+                  Retry Camera Sampling
+                </button>
+              </div>
             </div>
           )}
         </div>

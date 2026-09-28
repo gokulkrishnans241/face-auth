@@ -12,6 +12,7 @@ export const FaceEnrollmentModal = ({ isOpen, onClose, user, onEnrollmentComplet
   const [samplesCount, setSamplesCount] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [lastCapturedEmbedding, setLastCapturedEmbedding] = useState(null);
   const collectedSamplesRef = useRef([]);
   const lastCaptureTimeRef = useRef(0);
 
@@ -26,6 +27,7 @@ export const FaceEnrollmentModal = ({ isOpen, onClose, user, onEnrollmentComplet
     setError('');
     collectedSamplesRef.current = [];
     setSamplesCount(0);
+    setLastCapturedEmbedding(null);
     setStep('capture');
   };
 
@@ -74,12 +76,13 @@ export const FaceEnrollmentModal = ({ isOpen, onClose, user, onEnrollmentComplet
       for (let i = 0; i < numDims; i++) normSq += avgVec[i] * avgVec[i];
       const norm = Math.sqrt(normSq) || 1;
       const normalizedAvg = avgVec.map((v) => parseFloat((v / norm).toFixed(6)));
+      setLastCapturedEmbedding(normalizedAvg);
 
       submitEnrollment(normalizedAvg);
     }
   };
 
-  const submitEnrollment = async (embedding) => {
+  const submitEnrollment = async (embedding, forceOverride = false) => {
     setSubmitting(true);
     setError('');
     try {
@@ -88,6 +91,7 @@ export const FaceEnrollmentModal = ({ isOpen, onClose, user, onEnrollmentComplet
         facialEmbedding: embedding,
         biometricConsent: true,
         imageQualityScore: 0.98,
+        forceOverride,
       });
 
       if (res.data.success) {
@@ -216,17 +220,30 @@ export const FaceEnrollmentModal = ({ isOpen, onClose, user, onEnrollmentComplet
           )}
 
           {error && (
-            <div className="p-3.5 rounded-2xl bg-red-950/80 border border-red-500/40 text-xs text-red-200 flex items-start justify-between gap-3">
+            <div className="p-3.5 rounded-2xl bg-red-950/80 border border-red-500/40 text-xs text-red-200 flex flex-col gap-2.5">
               <div className="flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-400" />
                 <span className="leading-relaxed">{error}</span>
               </div>
-              <button
-                onClick={handleResetAndRetry}
-                className="px-3 py-1 bg-red-900/80 hover:bg-red-800 text-white rounded-xl text-[11px] font-bold shrink-0 transition-colors"
-              >
-                Retry
-              </button>
+              <div className="flex items-center gap-2 pt-1 flex-wrap">
+                {lastCapturedEmbedding && (
+                  <button
+                    type="button"
+                    onClick={() => submitEnrollment(lastCapturedEmbedding, true)}
+                    disabled={submitting}
+                    className="px-3.5 py-1.5 rounded-xl bg-teal-500 hover:bg-teal-600 text-slate-950 font-bold text-xs transition-all shadow-md shadow-teal-500/20 flex items-center gap-1.5"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Force Register Face</span>
+                  </button>
+                )}
+                <button
+                  onClick={handleResetAndRetry}
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl transition-colors"
+                >
+                  Retry Camera Sampling
+                </button>
+              </div>
             </div>
           )}
         </div>

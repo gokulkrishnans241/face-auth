@@ -8,7 +8,7 @@ import { calculateEuclideanDistance, calculateCosineSimilarity } from '../servic
  */
 export const enrollFace = async (req, res, next) => {
   try {
-    const { userId, facialEmbedding, biometricConsent, imageQualityScore = 0.95 } = req.body;
+    const { userId, facialEmbedding, biometricConsent, imageQualityScore = 0.95, forceOverride = false } = req.body;
 
     // A student can enroll their own face, or an admin can enroll for any user
     const targetUserId = (req.user.role === 'admin' && userId) ? userId : req.user._id;
@@ -27,29 +27,52 @@ export const enrollFace = async (req, res, next) => {
       });
     }
 
-    const user = await User.findById(targetUserId);
+    // Resolve user by _id or userId (roll number / student ID)
+    let user = null;
+    if (typeof targetUserId === 'string' && targetUserId.match(/^[0-9a-fA-F]{24}$/)) {
+      user = await User.findById(targetUserId);
+    } else if (targetUserId && typeof targetUserId === 'object' && targetUserId._id) {
+      user = await User.findById(targetUserId._id);
+    }
+    if (!user) {
+      user = await User.findOne({
+        $or: [{ _id: targetUserId }, { userId: targetUserId }],
+      });
+    }
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found.' });
     }
 
-    // CRITICAL: Check for duplicate biometric profile across all other enrolled students
-    const otherProfiles = await FaceProfile.find({
-      userId: { $ne: user._id },
-      enrollmentStatus: 'enrolled',
-    }).select('+facialEmbedding').populate('userId', 'name userId email');
+    // Check for duplicate biometric profile across all other enrolled users (if forceOverride is false)
+    if (!forceOverride) {
+      const otherProfiles = await FaceProfile.find({
+        userId: { $ne: user._id },
+        enrollmentStatus: 'enrolled',
+      }).select('+facialEmbedding').populate('userId', 'name userId email');
 
-    for (const existing of otherProfiles) {
-      if (!existing.facialEmbedding || existing.facialEmbedding.length === 0) continue;
-      const distance = calculateEuclideanDistance(facialEmbedding, existing.facialEmbedding);
-      const similarity = calculateCosineSimilarity(facialEmbedding, existing.facialEmbedding);
+      for (const existing of otherProfiles) {
+        if (!existing.userId) {
+          // Clean up orphaned profile from a deleted user record
+          await FaceProfile.deleteOne({ _id: existing._id });
+          continue;
+        }
 
-      // If faces are the SAME person (distance <= 0.44 or similarity >= 0.85), reject as duplicate
-      if (distance <= 0.44 || similarity >= 0.85) {
-        return res.status(409).json({
-          success: false,
-          duplicateDetected: true,
-          message: `Biometric Conflict: This face is already enrolled for student "${existing.userId?.name || 'Another Student'}" (${existing.userId?.userId || 'ID'}). Duplicate face registration across multiple students is not permitted.`,
-        });
+        if (!existing.facialEmbedding || existing.facialEmbedding.length === 0) continue;
+        const distance = calculateEuclideanDistance(facialEmbedding, existing.facialEmbedding);
+        const similarity = calculateCosineSimilarity(facialEmbedding, existing.facialEmbedding);
+
+        // Only reject if face is genuinely an identical clone (distance <= 0.28 and similarity >= 0.96)
+        if (distance <= 0.28 && similarity >= 0.96) {
+          return res.status(409).json({
+            success: false,
+            duplicateDetected: true,
+            conflictingUser: {
+              name: existing.userId?.name || 'Another Student',
+              userId: existing.userId?.userId || 'ID',
+            },
+            message: `Biometric Conflict: This face is already enrolled for student "${existing.userId?.name || 'Another Student'}" (${existing.userId?.userId || 'ID'}). If this is a distinct person, click "Force Register Face" to override.`,
+          });
+        }
       }
     }
 
@@ -58,6 +81,7 @@ export const enrollFace = async (req, res, next) => {
 
     if (faceProfile) {
       faceProfile.facialEmbedding = facialEmbedding;
+      faceProfile.userIdentifier = user.userId;
       faceProfile.faceSamplesCount = (faceProfile.faceSamplesCount || 1) + 1;
       faceProfile.biometricConsentStatus = true;
       faceProfile.consentTimestamp = new Date();
@@ -174,11 +198,11 @@ export const resetAllFaceProfiles = async (req, res, next) => {
     }
 
     await FaceProfile.deleteMany({});
-    await User.updateMany({ role: 'student' }, { biometricEnrolled: false });
+    await User.updateMany({}, { biometricEnrolled: false });
 
     return res.status(200).json({
       success: true,
-      message: 'All stored biometric facial profiles have been purged. All students can now enroll their real faces cleanly.',
+      message: 'All stored biometric facial profiles have been purged. All users can now enroll their faces cleanly.',
     });
   } catch (error) {
     next(error);
